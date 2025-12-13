@@ -414,6 +414,42 @@ fn containsInsensitive(haystack: []const u8, needle: []const u8) bool {
     return false;
 }
 
+/// Checks if a token is a NIP-50 extension (e.g., "include:spam", "language:en")
+/// Pattern: starts with ASCII letter, followed by letters/digits/underscore/hyphen,
+/// then a single colon, then at least one character that isn't '/' (to exclude URLs)
+/// Also rejects tokens containing "://" (URL schemes)
+fn isNip50Extension(token: []const u8) bool {
+    // Must have at least 3 chars: letter + colon + value
+    if (token.len < 3) return false;
+
+    // Reject URL schemes (contains "://")
+    if (std.mem.indexOf(u8, token, "://") != null) return false;
+
+    // First char must be ASCII letter
+    const first = token[0];
+    if (!((first >= 'A' and first <= 'Z') or (first >= 'a' and first <= 'z'))) return false;
+
+    // Find the colon position
+    const colon_pos = std.mem.indexOfScalar(u8, token, ':') orelse return false;
+
+    // Colon can't be at position 0 (already checked first is letter) or last position
+    if (colon_pos == 0 or colon_pos >= token.len - 1) return false;
+
+    // Check all chars before colon are valid extension name chars: [A-Za-z0-9_-]
+    for (token[1..colon_pos]) |c| {
+        const valid = (c >= 'A' and c <= 'Z') or
+            (c >= 'a' and c <= 'z') or
+            (c >= '0' and c <= '9') or
+            c == '_' or c == '-';
+        if (!valid) return false;
+    }
+
+    // Character immediately after colon must not be '/' (excludes paths like "file:/path")
+    if (token[colon_pos + 1] == '/') return false;
+
+    return true;
+}
+
 /// NIP-50: Case-insensitive multi-word AND search
 /// Returns true if all words in query appear in content (case-insensitive)
 /// Skips key:value extension pairs per NIP-50 spec
@@ -422,8 +458,8 @@ fn searchMatches(query: []const u8, content: []const u8) bool {
     var words_iter = std.mem.splitScalar(u8, query, ' ');
     while (words_iter.next()) |word| {
         if (word.len == 0) continue;
-        // Skip extension key:value pairs
-        if (std.mem.indexOfScalar(u8, word, ':') != null) continue;
+        // Skip NIP-50 extension key:value pairs (but not URLs or other colon-containing tokens)
+        if (isNip50Extension(word)) continue;
         // Non-extension word: must match
         if (!containsInsensitive(content, word)) return false;
     }
@@ -652,16 +688,7 @@ pub const Filter = struct {
             if (search_query.len > 0) {
                 if (!first) try writer.writeByte(',');
                 try writer.writeAll("\"search\":\"");
-                for (search_query) |c| {
-                    switch (c) {
-                        '"' => try writer.writeAll("\\\""),
-                        '\\' => try writer.writeAll("\\\\"),
-                        '\n' => try writer.writeAll("\\n"),
-                        '\r' => try writer.writeAll("\\r"),
-                        '\t' => try writer.writeAll("\\t"),
-                        else => try writer.writeByte(c),
-                    }
-                }
+                try writeJsonEscaped(writer, search_query);
                 try writer.writeByte('"');
             }
         }
