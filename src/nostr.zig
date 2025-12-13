@@ -1538,6 +1538,250 @@ pub fn cleanup() void {
     crypto.cleanup();
 }
 
+pub const Auth = struct {
+    pub const Tags = struct {
+        relay: ?[]const u8 = null,
+        challenge: ?[]const u8 = null,
+    };
+
+    pub fn extractTags(json: []const u8) Tags {
+        var result = Tags{};
+
+        const tags_start = std.mem.indexOf(u8, json, "\"tags\"") orelse return result;
+        var pos = tags_start + 6;
+
+        while (pos < json.len and json[pos] != '[') : (pos += 1) {}
+        if (pos >= json.len) return result;
+        pos += 1;
+
+        var depth: i32 = 0;
+        var in_string = false;
+        var escape = false;
+        var tag_start: ?usize = null;
+
+        while (pos < json.len) {
+            const c = json[pos];
+
+            if (escape) {
+                escape = false;
+                pos += 1;
+                continue;
+            }
+            if (c == '\\' and in_string) {
+                escape = true;
+                pos += 1;
+                continue;
+            }
+            if (c == '"') {
+                in_string = !in_string;
+                pos += 1;
+                continue;
+            }
+
+            if (!in_string) {
+                if (c == '[') {
+                    if (depth == 0) {
+                        tag_start = pos;
+                    }
+                    depth += 1;
+                } else if (c == ']') {
+                    depth -= 1;
+                    if (depth == 0 and tag_start != null) {
+                        const tag_json = json[tag_start.? .. pos + 1];
+                        extractAuthTagValues(tag_json, &result);
+                        tag_start = null;
+                    }
+                    if (depth < 0) break;
+                }
+            }
+
+            pos += 1;
+        }
+
+        return result;
+    }
+
+    fn extractAuthTagValues(tag_json: []const u8, result: *Tags) void {
+        var values: [2]?[]const u8 = .{ null, null };
+        var value_idx: usize = 0;
+        var pos: usize = 0;
+        var in_string = false;
+        var string_start: usize = 0;
+        var escape = false;
+
+        while (pos < tag_json.len and value_idx < 2) {
+            const c = tag_json[pos];
+
+            if (escape) {
+                escape = false;
+                pos += 1;
+                continue;
+            }
+            if (c == '\\' and in_string) {
+                escape = true;
+                pos += 1;
+                continue;
+            }
+
+            if (c == '"') {
+                if (in_string) {
+                    values[value_idx] = tag_json[string_start..pos];
+                    value_idx += 1;
+                } else {
+                    string_start = pos + 1;
+                }
+                in_string = !in_string;
+            }
+
+            pos += 1;
+        }
+
+        if (values[0] != null and values[1] != null) {
+            if (std.mem.eql(u8, values[0].?, "relay")) {
+                result.relay = values[1].?;
+            } else if (std.mem.eql(u8, values[0].?, "challenge")) {
+                result.challenge = values[1].?;
+            }
+        }
+    }
+
+    pub fn extractDomain(url: []const u8) ?[]const u8 {
+        var start: usize = 0;
+        if (std.mem.startsWith(u8, url, "wss://")) {
+            start = 6;
+        } else if (std.mem.startsWith(u8, url, "ws://")) {
+            start = 5;
+        } else if (std.mem.startsWith(u8, url, "https://")) {
+            start = 8;
+        } else if (std.mem.startsWith(u8, url, "http://")) {
+            start = 7;
+        }
+
+        if (start >= url.len) return null;
+
+        var end = start;
+        while (end < url.len) {
+            if (url[end] == ':' or url[end] == '/' or url[end] == '?') break;
+            end += 1;
+        }
+
+        if (end <= start) return null;
+        return url[start..end];
+    }
+
+    pub fn domainsMatch(url1: []const u8, url2: []const u8) bool {
+        const domain1 = extractDomain(url1) orelse return false;
+        const domain2 = extractDomain(url2) orelse return false;
+        return std.ascii.eqlIgnoreCase(domain1, domain2);
+    }
+};
+
+pub const Replaceable = struct {
+    pub const Decision = enum { accept_new, keep_old };
+
+    pub fn buildKey(event: *const Event, buf: *[128]u8) usize {
+        var key_len: usize = 0;
+
+        @memcpy(buf[0..32], event.pubkey());
+        key_len = 32;
+
+        const kind_be = @byteSwap(@as(u32, @bitCast(event.kind())));
+        @memcpy(buf[key_len..][0..4], std.mem.asBytes(&kind_be));
+        key_len += 4;
+
+        const kt = kindType(event.kind());
+        if (kt == .addressable) {
+            if (event.dTag()) |d| {
+                const copy_len = @min(d.len, buf.len - key_len);
+                @memcpy(buf[key_len..][0..copy_len], d[0..copy_len]);
+                key_len += copy_len;
+            }
+        }
+
+        return key_len;
+    }
+
+    pub fn shouldReplace(existing: *const Event, new: *const Event) Decision {
+        if (new.createdAt() > existing.createdAt()) return .accept_new;
+        if (new.createdAt() < existing.createdAt()) return .keep_old;
+        if (std.mem.order(u8, new.id(), existing.id()) == .lt) return .accept_new;
+        return .keep_old;
+    }
+};
+
+pub const IndexKeys = struct {
+    pub fn created(event: *const Event, buf: *[40]u8) void {
+        const created_at_be = @byteSwap(@as(u64, @bitCast(event.createdAt())));
+        @memcpy(buf[0..8], std.mem.asBytes(&created_at_be));
+        @memcpy(buf[8..40], event.id());
+    }
+
+    pub fn pubkey(event: *const Event, buf: *[72]u8) void {
+        const created_at_be = @byteSwap(@as(u64, @bitCast(event.createdAt())));
+        @memcpy(buf[0..32], event.pubkey());
+        @memcpy(buf[32..40], std.mem.asBytes(&created_at_be));
+        @memcpy(buf[40..72], event.id());
+    }
+
+    pub fn kind(event: *const Event, buf: *[44]u8) void {
+        const kind_be = @byteSwap(@as(u32, @bitCast(event.kind())));
+        const created_at_be = @byteSwap(@as(u64, @bitCast(event.createdAt())));
+        @memcpy(buf[0..4], std.mem.asBytes(&kind_be));
+        @memcpy(buf[4..12], std.mem.asBytes(&created_at_be));
+        @memcpy(buf[12..44], event.id());
+    }
+
+    pub fn expiration(event: *const Event, buf: *[40]u8) ?*[40]u8 {
+        const exp = event.expiration_val orelse return null;
+        if (exp < 0) return null;
+        const exp_be = @byteSwap(@as(u64, @intCast(exp)));
+        @memcpy(buf[0..8], std.mem.asBytes(&exp_be));
+        @memcpy(buf[8..40], event.id());
+        return buf;
+    }
+
+    pub const BinaryTagKey = struct {
+        data: [73]u8,
+
+        pub fn init(letter: u8, value: *const [32]u8, created_at_be: *const [8]u8, event_id: *const [32]u8) BinaryTagKey {
+            var key = BinaryTagKey{ .data = undefined };
+            key.data[0] = letter;
+            @memcpy(key.data[1..33], value);
+            @memcpy(key.data[33..41], created_at_be);
+            @memcpy(key.data[41..73], event_id);
+            return key;
+        }
+
+        pub fn slice(self: *const BinaryTagKey) []const u8 {
+            return &self.data;
+        }
+    };
+
+    pub const StringTagKey = struct {
+        data: [297]u8,
+        len: usize,
+
+        pub fn init(letter: u8, value: []const u8, created_at_be: *const [8]u8, event_id: *const [32]u8) ?StringTagKey {
+            if (value.len > 256) return null;
+            var key = StringTagKey{ .data = undefined, .len = 0 };
+            key.data[0] = letter;
+            @memcpy(key.data[1..][0..value.len], value);
+            @memcpy(key.data[1 + value.len ..][0..8], created_at_be);
+            @memcpy(key.data[1 + value.len + 8 ..][0..32], event_id);
+            key.len = 1 + value.len + 8 + 32;
+            return key;
+        }
+
+        pub fn slice(self: *const StringTagKey) []const u8 {
+            return self.data[0..self.len];
+        }
+    };
+
+    pub fn timestampBe(event: *const Event) [8]u8 {
+        return @bitCast(@byteSwap(@as(u64, @bitCast(event.createdAt()))));
+    }
+};
+
 test "event builder" {
     try init();
     defer cleanup();
@@ -1550,4 +1794,53 @@ test "event builder" {
     var buf: [4096]u8 = undefined;
     const json = try builder.serialize(&buf);
     try std.testing.expect(json.len > 0);
+}
+
+test "Auth.extractDomain" {
+    try std.testing.expectEqualStrings("example.com", Auth.extractDomain("wss://example.com").?);
+    try std.testing.expectEqualStrings("example.com", Auth.extractDomain("wss://example.com/").?);
+    try std.testing.expectEqualStrings("example.com", Auth.extractDomain("wss://example.com:8080").?);
+    try std.testing.expectEqualStrings("example.com", Auth.extractDomain("ws://example.com").?);
+    try std.testing.expectEqualStrings("example.com", Auth.extractDomain("https://example.com").?);
+    try std.testing.expectEqualStrings("example.com", Auth.extractDomain("http://example.com/path").?);
+    try std.testing.expect(Auth.extractDomain("wss://") == null);
+}
+
+test "Auth.domainsMatch" {
+    try std.testing.expect(Auth.domainsMatch("wss://example.com", "wss://example.com/"));
+    try std.testing.expect(Auth.domainsMatch("wss://EXAMPLE.COM", "wss://example.com"));
+    try std.testing.expect(Auth.domainsMatch("wss://example.com:8080", "ws://example.com/path"));
+    try std.testing.expect(!Auth.domainsMatch("wss://example.com", "wss://other.com"));
+}
+
+test "Auth.extractTags" {
+    const json =
+        \\{"id":"abc","pubkey":"def","sig":"ghi","kind":22242,"created_at":1234,"content":"","tags":[["relay","wss://relay.example.com"],["challenge","test-challenge-123"]]}
+    ;
+    const tags = Auth.extractTags(json);
+    try std.testing.expectEqualStrings("wss://relay.example.com", tags.relay.?);
+    try std.testing.expectEqualStrings("test-challenge-123", tags.challenge.?);
+}
+
+test "IndexKeys.created" {
+    try init();
+    defer cleanup();
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[]}
+    ;
+    var event = try Event.parse(json);
+    defer event.deinit();
+
+    var key: [40]u8 = undefined;
+    IndexKeys.created(&event, &key);
+
+    // Verify timestamp is big-endian
+    const ts_be: u64 = @bitCast(key[0..8].*);
+    const ts = @byteSwap(ts_be);
+    try std.testing.expectEqual(@as(u64, 1700000000), ts);
+
+    // Verify event ID is appended
+    try std.testing.expectEqual(@as(u8, 0), key[8]);
+    try std.testing.expectEqual(@as(u8, 1), key[39]);
 }
