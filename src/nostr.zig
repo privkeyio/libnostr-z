@@ -394,7 +394,6 @@ pub fn getDeletionIds(allocator: std.mem.Allocator, event: *const Event) ![]cons
     return &[_][32]u8{};
 }
 
-/// NIP-50: Case-insensitive substring search (ASCII only)
 fn containsInsensitive(haystack: []const u8, needle: []const u8) bool {
     if (needle.len == 0) return true;
     if (needle.len > haystack.len) return false;
@@ -414,28 +413,16 @@ fn containsInsensitive(haystack: []const u8, needle: []const u8) bool {
     return false;
 }
 
-/// Checks if a token is a NIP-50 extension (e.g., "include:spam", "language:en")
-/// Pattern: starts with ASCII letter, followed by letters/digits/underscore/hyphen,
-/// then a single colon, then at least one character that isn't '/' (to exclude URLs)
-/// Also rejects tokens containing "://" (URL schemes)
 fn isNip50Extension(token: []const u8) bool {
-    // Must have at least 3 chars: letter + colon + value
     if (token.len < 3) return false;
-
-    // Reject URL schemes (contains "://")
     if (std.mem.indexOf(u8, token, "://") != null) return false;
 
-    // First char must be ASCII letter
     const first = token[0];
     if (!((first >= 'A' and first <= 'Z') or (first >= 'a' and first <= 'z'))) return false;
 
-    // Find the colon position
     const colon_pos = std.mem.indexOfScalar(u8, token, ':') orelse return false;
-
-    // Colon can't be at position 0 (already checked first is letter) or last position
     if (colon_pos == 0 or colon_pos >= token.len - 1) return false;
 
-    // Check all chars before colon are valid extension name chars: [A-Za-z0-9_-]
     for (token[1..colon_pos]) |c| {
         const valid = (c >= 'A' and c <= 'Z') or
             (c >= 'a' and c <= 'z') or
@@ -444,26 +431,17 @@ fn isNip50Extension(token: []const u8) bool {
         if (!valid) return false;
     }
 
-    // Character immediately after colon must not be '/' (excludes paths like "file:/path")
     if (token[colon_pos + 1] == '/') return false;
-
     return true;
 }
 
-/// NIP-50: Case-insensitive multi-word AND search
-/// Returns true if all words in query appear in content (case-insensitive)
-/// Skips key:value extension pairs per NIP-50 spec
-/// If query contains only extensions (no regular words), returns true
 fn searchMatches(query: []const u8, content: []const u8) bool {
     var words_iter = std.mem.splitScalar(u8, query, ' ');
     while (words_iter.next()) |word| {
         if (word.len == 0) continue;
-        // Skip NIP-50 extension key:value pairs (but not URLs or other colon-containing tokens)
         if (isNip50Extension(word)) continue;
-        // Non-extension word: must match
         if (!containsInsensitive(content, word)) return false;
     }
-    // All non-extension words matched (or no non-extension words existed)
     return true;
 }
 
@@ -480,7 +458,7 @@ pub const Filter = struct {
     until_val: i64 = 0,
     limit_val: i32 = 0,
     tag_filters: ?[]FilterTagEntry = null,
-    search_str: ?[]const u8 = null, // NIP-50: search query string
+    search_str: ?[]const u8 = null,
     allocator: ?std.mem.Allocator = null,
 
     pub fn clone(self: *const Filter, allocator: std.mem.Allocator) !Filter {
@@ -571,14 +549,9 @@ pub const Filter = struct {
             }
         }
 
-        // NIP-50: Search filter matching
         if (self.search_str) |query| {
             if (query.len > 0) {
-                const content = event.content();
-                // Don't short-circuit on empty content - searchMatches handles
-                // extension-only queries (e.g., "include:spam") which don't
-                // require content matching
-                if (!searchMatches(query, content)) return false;
+                if (!searchMatches(query, event.content())) return false;
             }
         }
 
@@ -683,7 +656,6 @@ pub const Filter = struct {
             try writer.print("\"limit\":{d}", .{self.limit_val});
         }
 
-        // NIP-50: Serialize search field
         if (self.search_str) |search_query| {
             if (search_query.len > 0) {
                 if (!first) try writer.writeByte(',');
@@ -903,7 +875,6 @@ pub const ClientMsg = struct {
                 }
             }
 
-            // NIP-50: Parse search field
             if (filter_obj.get("search")) |v| {
                 if (v == .string) {
                     filter.search_str = try allocator.dupe(u8, v.string);
