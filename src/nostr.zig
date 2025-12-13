@@ -394,6 +394,43 @@ pub fn getDeletionIds(allocator: std.mem.Allocator, event: *const Event) ![]cons
     return &[_][32]u8{};
 }
 
+/// NIP-50: Case-insensitive substring search (ASCII only)
+fn containsInsensitive(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (needle.len > haystack.len) return false;
+
+    var i: usize = 0;
+    while (i <= haystack.len - needle.len) : (i += 1) {
+        var match = true;
+        for (needle, 0..) |nc, j| {
+            const hc = haystack[i + j];
+            if (std.ascii.toLower(hc) != std.ascii.toLower(nc)) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
+/// NIP-50: Case-insensitive multi-word AND search
+/// Returns true if all words in query appear in content (case-insensitive)
+/// Skips key:value extension pairs per NIP-50 spec
+/// If query contains only extensions (no regular words), returns true
+fn searchMatches(query: []const u8, content: []const u8) bool {
+    var words_iter = std.mem.splitScalar(u8, query, ' ');
+    while (words_iter.next()) |word| {
+        if (word.len == 0) continue;
+        // Skip extension key:value pairs
+        if (std.mem.indexOfScalar(u8, word, ':') != null) continue;
+        // Non-extension word: must match
+        if (!containsInsensitive(content, word)) return false;
+    }
+    // All non-extension words matched (or no non-extension words existed)
+    return true;
+}
+
 pub const FilterTagEntry = struct {
     letter: u8,
     values: []const TagValue,
@@ -407,6 +444,7 @@ pub const Filter = struct {
     until_val: i64 = 0,
     limit_val: i32 = 0,
     tag_filters: ?[]FilterTagEntry = null,
+    search_str: ?[]const u8 = null, // NIP-50: search query string
     allocator: ?std.mem.Allocator = null,
 
     pub fn clone(self: *const Filter, allocator: std.mem.Allocator) !Filter {
@@ -431,6 +469,9 @@ pub const Filter = struct {
                 };
             }
             new_filter.tag_filters = new_tags;
+        }
+        if (self.search_str) |s| {
+            new_filter.search_str = try allocator.dupe(u8, s);
         }
 
         return new_filter;
@@ -494,6 +535,15 @@ pub const Filter = struct {
             }
         }
 
+        // NIP-50: Search filter matching
+        if (self.search_str) |query| {
+            if (query.len > 0) {
+                const content = event.content();
+                if (content.len == 0) return false;
+                if (!searchMatches(query, content)) return false;
+            }
+        }
+
         return true;
     }
 
@@ -519,6 +569,10 @@ pub const Filter = struct {
 
     pub fn limit(self: *const Filter) i32 {
         return self.limit_val;
+    }
+
+    pub fn search(self: *const Filter) ?[]const u8 {
+        return self.search_str;
     }
 
     pub fn hasTagFilters(self: *const Filter) bool {
@@ -587,7 +641,27 @@ pub const Filter = struct {
 
         if (self.limit_val > 0) {
             if (!first) try writer.writeByte(',');
+            first = false;
             try writer.print("\"limit\":{d}", .{self.limit_val});
+        }
+
+        // NIP-50: Serialize search field
+        if (self.search_str) |search_query| {
+            if (search_query.len > 0) {
+                if (!first) try writer.writeByte(',');
+                try writer.writeAll("\"search\":\"");
+                for (search_query) |c| {
+                    switch (c) {
+                        '"' => try writer.writeAll("\\\""),
+                        '\\' => try writer.writeAll("\\\\"),
+                        '\n' => try writer.writeAll("\\n"),
+                        '\r' => try writer.writeAll("\\r"),
+                        '\t' => try writer.writeAll("\\t"),
+                        else => try writer.writeByte(c),
+                    }
+                }
+                try writer.writeByte('"');
+            }
         }
 
         try writer.writeByte('}');
@@ -612,6 +686,7 @@ pub const Filter = struct {
                 }
                 alloc.free(tags);
             }
+            if (self.search_str) |s| alloc.free(s);
         }
         self.* = .{};
     }
@@ -725,6 +800,7 @@ pub const ClientMsg = struct {
             if (filter_val != .object) continue;
 
             var filter = Filter{ .allocator = allocator };
+            errdefer filter.deinit();
             const filter_obj = filter_val.object;
 
             if (filter_obj.get("ids")) |ids_val| {
@@ -795,6 +871,13 @@ pub const ClientMsg = struct {
             if (filter_obj.get("until")) |v| {
                 if (v == .integer) {
                     filter.until_val = v.integer;
+                }
+            }
+
+            // NIP-50: Parse search field
+            if (filter_obj.get("search")) |v| {
+                if (v == .string) {
+                    filter.search_str = try allocator.dupe(u8, v.string);
                 }
             }
 
