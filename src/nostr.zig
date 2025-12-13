@@ -667,6 +667,7 @@ pub const Filter = struct {
                 }
                 alloc.free(tags);
             }
+            if (self.search_str) |s| alloc.free(s);
         }
         self.* = .{};
     }
@@ -856,7 +857,7 @@ pub const ClientMsg = struct {
             // NIP-50: Parse search field
             if (filter_obj.get("search")) |v| {
                 if (v == .string) {
-                    filter.search_str = v.string;
+                    filter.search_str = try allocator.dupe(u8, v.string);
                 }
             }
 
