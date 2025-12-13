@@ -539,7 +539,9 @@ pub const Filter = struct {
         if (self.search_str) |query| {
             if (query.len > 0) {
                 const content = event.content();
-                if (content.len == 0) return false;
+                // Don't short-circuit on empty content - searchMatches handles
+                // extension-only queries (e.g., "include:spam") which don't
+                // require content matching
                 if (!searchMatches(query, content)) return false;
             }
         }
