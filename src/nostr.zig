@@ -394,7 +394,7 @@ pub fn getDeletionIds(allocator: std.mem.Allocator, event: *const Event) ![]cons
     return &[_][32]u8{};
 }
 
-/// NIP-50: Case-insensitive substring search
+/// NIP-50: Case-insensitive substring search (ASCII only)
 fn containsInsensitive(haystack: []const u8, needle: []const u8) bool {
     if (needle.len == 0) return true;
     if (needle.len > haystack.len) return false;
@@ -404,9 +404,7 @@ fn containsInsensitive(haystack: []const u8, needle: []const u8) bool {
         var match = true;
         for (needle, 0..) |nc, j| {
             const hc = haystack[i + j];
-            const hc_lower = if (hc >= 'A' and hc <= 'Z') hc + 32 else hc;
-            const nc_lower = if (nc >= 'A' and nc <= 'Z') nc + 32 else nc;
-            if (hc_lower != nc_lower) {
+            if (std.ascii.toLower(hc) != std.ascii.toLower(nc)) {
                 match = false;
                 break;
             }
@@ -643,7 +641,27 @@ pub const Filter = struct {
 
         if (self.limit_val > 0) {
             if (!first) try writer.writeByte(',');
+            first = false;
             try writer.print("\"limit\":{d}", .{self.limit_val});
+        }
+
+        // NIP-50: Serialize search field
+        if (self.search_str) |search_query| {
+            if (search_query.len > 0) {
+                if (!first) try writer.writeByte(',');
+                try writer.writeAll("\"search\":\"");
+                for (search_query) |c| {
+                    switch (c) {
+                        '"' => try writer.writeAll("\\\""),
+                        '\\' => try writer.writeAll("\\\\"),
+                        '\n' => try writer.writeAll("\\n"),
+                        '\r' => try writer.writeAll("\\r"),
+                        '\t' => try writer.writeAll("\\t"),
+                        else => try writer.writeByte(c),
+                    }
+                }
+                try writer.writeByte('"');
+            }
         }
 
         try writer.writeByte('}');
