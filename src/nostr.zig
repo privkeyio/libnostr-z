@@ -66,11 +66,11 @@ pub const TagValue = union(enum) {
 };
 
 pub const TagIndex = struct {
-    entries: [26]std.ArrayListUnmanaged(TagValue),
+    entries: [52]std.ArrayListUnmanaged(TagValue),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) TagIndex {
-        var entries: [26]std.ArrayListUnmanaged(TagValue) = undefined;
+        var entries: [52]std.ArrayListUnmanaged(TagValue) = undefined;
         for (&entries) |*e| {
             e.* = .{};
         }
@@ -91,8 +91,13 @@ pub const TagIndex = struct {
 
     fn letterIndex(letter: u8) ?usize {
         if (letter >= 'a' and letter <= 'z') return letter - 'a';
-        if (letter >= 'A' and letter <= 'Z') return letter - 'A';
+        if (letter >= 'A' and letter <= 'Z') return (letter - 'A') + 26;
         return null;
+    }
+
+    fn indexToLetter(idx: usize) u8 {
+        if (idx < 26) return @intCast(idx + 'a');
+        return @intCast((idx - 26) + 'A');
     }
 
     pub fn append(self: *TagIndex, tag_letter: u8, value: TagValue) !void {
@@ -126,11 +131,11 @@ pub const TagIterator = struct {
     };
 
     pub fn next(self: *TagIterator) ?Entry {
-        while (self.letter_idx < 26) {
+        while (self.letter_idx < 52) {
             const list = &self.index.entries[self.letter_idx];
             if (self.value_idx < list.items.len) {
                 const entry = Entry{
-                    .letter = @intCast(self.letter_idx + 'a'),
+                    .letter = TagIndex.indexToLetter(self.letter_idx),
                     .value = list.items[self.value_idx],
                 };
                 self.value_idx += 1;
@@ -227,12 +232,12 @@ pub const Event = struct {
                     if (tag_name.len == 1) {
                         const letter = tag_name[0];
 
-                        if (letter == 'e' or letter == 'p') {
+                        if (letter == 'e' or letter == 'p' or letter == 'E' or letter == 'P') {
                             if (tag_value_str.len == 64) {
                                 var bytes: [32]u8 = undefined;
                                 if (std.fmt.hexToBytes(&bytes, tag_value_str)) |_| {
                                     event.tags.append(letter, .{ .binary = bytes }) catch {};
-                                    if (letter == 'e') {
+                                    if (letter == 'e' or letter == 'E') {
                                         event.e_tags.append(allocator, bytes) catch {};
                                     }
                                 } else |_| {}
@@ -928,7 +933,7 @@ pub const ClientMsg = struct {
 
                             if (values_list.items.len > 0) {
                                 try tag_entries.append(allocator, .{
-                                    .letter = if (letter >= 'A' and letter <= 'Z') letter + 32 else letter,
+                                    .letter = letter,
                                     .values = try values_list.toOwnedSlice(allocator),
                                 });
                             } else {
@@ -1843,4 +1848,340 @@ test "IndexKeys.created" {
     // Verify event ID is appended
     try std.testing.expectEqual(@as(u8, 0), key[8]);
     try std.testing.expectEqual(@as(u8, 1), key[39]);
+}
+
+test "TagIndex.letterIndex maps lowercase and uppercase correctly" {
+    try std.testing.expectEqual(@as(?usize, 0), TagIndex.letterIndex('a'));
+    try std.testing.expectEqual(@as(?usize, 25), TagIndex.letterIndex('z'));
+    try std.testing.expectEqual(@as(?usize, 4), TagIndex.letterIndex('e'));
+    try std.testing.expectEqual(@as(?usize, 15), TagIndex.letterIndex('p'));
+
+    try std.testing.expectEqual(@as(?usize, 26), TagIndex.letterIndex('A'));
+    try std.testing.expectEqual(@as(?usize, 51), TagIndex.letterIndex('Z'));
+    try std.testing.expectEqual(@as(?usize, 30), TagIndex.letterIndex('E'));
+    try std.testing.expectEqual(@as(?usize, 41), TagIndex.letterIndex('P'));
+    try std.testing.expectEqual(@as(?usize, 49), TagIndex.letterIndex('X'));
+
+    try std.testing.expectEqual(@as(?usize, null), TagIndex.letterIndex('0'));
+    try std.testing.expectEqual(@as(?usize, null), TagIndex.letterIndex('#'));
+    try std.testing.expectEqual(@as(?usize, null), TagIndex.letterIndex(' '));
+}
+
+test "TagIndex.indexToLetter converts indices back to letters" {
+    try std.testing.expectEqual(@as(u8, 'a'), TagIndex.indexToLetter(0));
+    try std.testing.expectEqual(@as(u8, 'z'), TagIndex.indexToLetter(25));
+    try std.testing.expectEqual(@as(u8, 'e'), TagIndex.indexToLetter(4));
+    try std.testing.expectEqual(@as(u8, 'p'), TagIndex.indexToLetter(15));
+
+    try std.testing.expectEqual(@as(u8, 'A'), TagIndex.indexToLetter(26));
+    try std.testing.expectEqual(@as(u8, 'Z'), TagIndex.indexToLetter(51));
+    try std.testing.expectEqual(@as(u8, 'E'), TagIndex.indexToLetter(30));
+    try std.testing.expectEqual(@as(u8, 'P'), TagIndex.indexToLetter(41));
+    try std.testing.expectEqual(@as(u8, 'X'), TagIndex.indexToLetter(49));
+}
+
+test "TagIndex stores and retrieves uppercase tags preserving case" {
+    const allocator = std.testing.allocator;
+    var index = TagIndex.init(allocator);
+    defer index.deinit();
+
+    try index.append('e', .{ .string = try allocator.dupe(u8, "lowercase-e") });
+    try index.append('E', .{ .string = try allocator.dupe(u8, "uppercase-E") });
+    try index.append('P', .{ .string = try allocator.dupe(u8, "uppercase-P") });
+    try index.append('X', .{ .string = try allocator.dupe(u8, "uppercase-X") });
+
+    const e_values = index.get('e').?;
+    try std.testing.expectEqual(@as(usize, 1), e_values.len);
+    try std.testing.expectEqualStrings("lowercase-e", e_values[0].string);
+
+    const E_values = index.get('E').?;
+    try std.testing.expectEqual(@as(usize, 1), E_values.len);
+    try std.testing.expectEqualStrings("uppercase-E", E_values[0].string);
+
+    const P_values = index.get('P').?;
+    try std.testing.expectEqual(@as(usize, 1), P_values.len);
+    try std.testing.expectEqualStrings("uppercase-P", P_values[0].string);
+
+    const X_values = index.get('X').?;
+    try std.testing.expectEqual(@as(usize, 1), X_values.len);
+    try std.testing.expectEqualStrings("uppercase-X", X_values[0].string);
+
+    try std.testing.expect(index.get('p') == null);
+    try std.testing.expect(index.get('x') == null);
+}
+
+test "TagIterator yields both lowercase and uppercase entries" {
+    const allocator = std.testing.allocator;
+    var index = TagIndex.init(allocator);
+    defer index.deinit();
+
+    try index.append('a', .{ .string = try allocator.dupe(u8, "val-a") });
+    try index.append('e', .{ .string = try allocator.dupe(u8, "val-e") });
+    try index.append('A', .{ .string = try allocator.dupe(u8, "val-A") });
+    try index.append('E', .{ .string = try allocator.dupe(u8, "val-E") });
+    try index.append('Z', .{ .string = try allocator.dupe(u8, "val-Z") });
+
+    var iter = index.iterator();
+    var found_lowercase_a = false;
+    var found_lowercase_e = false;
+    var found_uppercase_A = false;
+    var found_uppercase_E = false;
+    var found_uppercase_Z = false;
+    var count: usize = 0;
+
+    while (iter.next()) |entry| {
+        count += 1;
+        if (entry.letter == 'a' and std.mem.eql(u8, entry.value.string, "val-a")) found_lowercase_a = true;
+        if (entry.letter == 'e' and std.mem.eql(u8, entry.value.string, "val-e")) found_lowercase_e = true;
+        if (entry.letter == 'A' and std.mem.eql(u8, entry.value.string, "val-A")) found_uppercase_A = true;
+        if (entry.letter == 'E' and std.mem.eql(u8, entry.value.string, "val-E")) found_uppercase_E = true;
+        if (entry.letter == 'Z' and std.mem.eql(u8, entry.value.string, "val-Z")) found_uppercase_Z = true;
+    }
+
+    try std.testing.expectEqual(@as(usize, 5), count);
+    try std.testing.expect(found_lowercase_a);
+    try std.testing.expect(found_lowercase_e);
+    try std.testing.expect(found_uppercase_A);
+    try std.testing.expect(found_uppercase_E);
+    try std.testing.expect(found_uppercase_Z);
+}
+
+test "Event.parse handles uppercase single-letter tags" {
+    try init();
+    defer cleanup();
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["E","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],["P","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],["X","custom-value"]]}
+    ;
+
+    var event = try Event.parse(json);
+    defer event.deinit();
+
+    const E_values = event.tags.get('E').?;
+    try std.testing.expectEqual(@as(usize, 1), E_values.len);
+    switch (E_values[0]) {
+        .binary => |b| {
+            for (b) |byte| {
+                try std.testing.expectEqual(@as(u8, 0xaa), byte);
+            }
+        },
+        .string => return error.ExpectedBinary,
+    }
+
+    const P_values = event.tags.get('P').?;
+    try std.testing.expectEqual(@as(usize, 1), P_values.len);
+    switch (P_values[0]) {
+        .binary => |b| {
+            for (b) |byte| {
+                try std.testing.expectEqual(@as(u8, 0xbb), byte);
+            }
+        },
+        .string => return error.ExpectedBinary,
+    }
+
+    const X_values = event.tags.get('X').?;
+    try std.testing.expectEqual(@as(usize, 1), X_values.len);
+    try std.testing.expectEqualStrings("custom-value", X_values[0].string);
+
+    try std.testing.expect(event.tags.get('e') == null);
+    try std.testing.expect(event.tags.get('p') == null);
+}
+
+test "Event.parse keeps lowercase and uppercase tags separate" {
+    try init();
+    defer cleanup();
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["e","1111111111111111111111111111111111111111111111111111111111111111"],["E","2222222222222222222222222222222222222222222222222222222222222222"],["t","hashtag"],["T","HASHTAG"]]}
+    ;
+
+    var event = try Event.parse(json);
+    defer event.deinit();
+
+    const e_values = event.tags.get('e').?;
+    try std.testing.expectEqual(@as(usize, 1), e_values.len);
+    try std.testing.expectEqual(@as(u8, 0x11), e_values[0].binary[0]);
+
+    const E_values = event.tags.get('E').?;
+    try std.testing.expectEqual(@as(usize, 1), E_values.len);
+    try std.testing.expectEqual(@as(u8, 0x22), E_values[0].binary[0]);
+
+    const t_values = event.tags.get('t').?;
+    try std.testing.expectEqual(@as(usize, 1), t_values.len);
+    try std.testing.expectEqualStrings("hashtag", t_values[0].string);
+
+    const T_values = event.tags.get('T').?;
+    try std.testing.expectEqual(@as(usize, 1), T_values.len);
+    try std.testing.expectEqualStrings("HASHTAG", T_values[0].string);
+}
+
+test "Filter matches uppercase tags correctly" {
+    try init();
+    defer cleanup();
+
+    const allocator = std.testing.allocator;
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["E","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]]}
+    ;
+
+    var event = try Event.parseWithAllocator(json, allocator);
+    defer event.deinit();
+
+    var E_bytes: [32]u8 = undefined;
+    @memset(&E_bytes, 0xaa);
+
+    var E_tag_values = [_]TagValue{.{ .binary = E_bytes }};
+    const E_tag_entry = FilterTagEntry{ .letter = 'E', .values = &E_tag_values };
+    var tag_filters = [_]FilterTagEntry{E_tag_entry};
+
+    const filter_E = Filter{
+        .tag_filters = &tag_filters,
+    };
+
+    try std.testing.expect(filter_E.matches(&event));
+
+    const e_tag_entry = FilterTagEntry{ .letter = 'e', .values = &E_tag_values };
+    var e_tag_filters = [_]FilterTagEntry{e_tag_entry};
+
+    const filter_e = Filter{
+        .tag_filters = &e_tag_filters,
+    };
+
+    try std.testing.expect(!filter_e.matches(&event));
+}
+
+test "Filter parsing handles uppercase tag filters" {
+    try init();
+    defer cleanup();
+
+    const allocator = std.testing.allocator;
+
+    const req_json =
+        \\["REQ","sub1",{"#E":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"#P":["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],"#X":["custom"]}]
+    ;
+
+    var msg = try ClientMsg.parseWithAllocator(req_json, allocator);
+    defer msg.deinit();
+
+    const filters = try msg.getFilters(allocator);
+    defer {
+        for (filters) |*f| f.deinit();
+        allocator.free(filters);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), filters.len);
+    const filter = filters[0];
+
+    try std.testing.expect(filter.tag_filters != null);
+    const tag_filters = filter.tag_filters.?;
+    try std.testing.expectEqual(@as(usize, 3), tag_filters.len);
+
+    var found_E = false;
+    var found_P = false;
+    var found_X = false;
+
+    for (tag_filters) |entry| {
+        if (entry.letter == 'E') {
+            found_E = true;
+            try std.testing.expectEqual(@as(usize, 1), entry.values.len);
+            switch (entry.values[0]) {
+                .binary => |b| try std.testing.expectEqual(@as(u8, 0xaa), b[0]),
+                .string => return error.ExpectedBinary,
+            }
+        }
+        if (entry.letter == 'P') {
+            found_P = true;
+            try std.testing.expectEqual(@as(usize, 1), entry.values.len);
+            switch (entry.values[0]) {
+                .binary => |b| try std.testing.expectEqual(@as(u8, 0xbb), b[0]),
+                .string => return error.ExpectedBinary,
+            }
+        }
+        if (entry.letter == 'X') {
+            found_X = true;
+            try std.testing.expectEqual(@as(usize, 1), entry.values.len);
+            try std.testing.expectEqualStrings("custom", entry.values[0].string);
+        }
+    }
+
+    try std.testing.expect(found_E);
+    try std.testing.expect(found_P);
+    try std.testing.expect(found_X);
+}
+
+test "Filter with mixed-case tags matches correctly" {
+    try init();
+    defer cleanup();
+
+    const allocator = std.testing.allocator;
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["e","1111111111111111111111111111111111111111111111111111111111111111"],["E","2222222222222222222222222222222222222222222222222222222222222222"],["t","hello"],["T","HELLO"]]}
+    ;
+
+    var event = try Event.parseWithAllocator(json, allocator);
+    defer event.deinit();
+
+    var e_bytes: [32]u8 = undefined;
+    @memset(&e_bytes, 0x11);
+    var e_values = [_]TagValue{.{ .binary = e_bytes }};
+    const e_entry = FilterTagEntry{ .letter = 'e', .values = &e_values };
+    var e_filters = [_]FilterTagEntry{e_entry};
+    const filter_e = Filter{ .tag_filters = &e_filters };
+    try std.testing.expect(filter_e.matches(&event));
+
+    var E_bytes: [32]u8 = undefined;
+    @memset(&E_bytes, 0x22);
+    var E_values = [_]TagValue{.{ .binary = E_bytes }};
+    const E_entry = FilterTagEntry{ .letter = 'E', .values = &E_values };
+    var E_filters = [_]FilterTagEntry{E_entry};
+    const filter_E = Filter{ .tag_filters = &E_filters };
+    try std.testing.expect(filter_E.matches(&event));
+
+    var wrong_e_values = [_]TagValue{.{ .binary = E_bytes }};
+    const wrong_e_entry = FilterTagEntry{ .letter = 'e', .values = &wrong_e_values };
+    var wrong_e_filters = [_]FilterTagEntry{wrong_e_entry};
+    const filter_wrong_e = Filter{ .tag_filters = &wrong_e_filters };
+    try std.testing.expect(!filter_wrong_e.matches(&event));
+
+    var wrong_E_values = [_]TagValue{.{ .binary = e_bytes }};
+    const wrong_E_entry = FilterTagEntry{ .letter = 'E', .values = &wrong_E_values };
+    var wrong_E_filters = [_]FilterTagEntry{wrong_E_entry};
+    const filter_wrong_E = Filter{ .tag_filters = &wrong_E_filters };
+    try std.testing.expect(!filter_wrong_E.matches(&event));
+
+    var t_values = [_]TagValue{.{ .string = "hello" }};
+    const t_entry = FilterTagEntry{ .letter = 't', .values = &t_values };
+    var t_filters = [_]FilterTagEntry{t_entry};
+    const filter_t = Filter{ .tag_filters = &t_filters };
+    try std.testing.expect(filter_t.matches(&event));
+
+    var T_values = [_]TagValue{.{ .string = "HELLO" }};
+    const T_entry = FilterTagEntry{ .letter = 'T', .values = &T_values };
+    var T_filters = [_]FilterTagEntry{T_entry};
+    const filter_T = Filter{ .tag_filters = &T_filters };
+    try std.testing.expect(filter_T.matches(&event));
+
+    var wrong_t_values = [_]TagValue{.{ .string = "HELLO" }};
+    const wrong_t_entry = FilterTagEntry{ .letter = 't', .values = &wrong_t_values };
+    var wrong_t_filters = [_]FilterTagEntry{wrong_t_entry};
+    const filter_wrong_t = Filter{ .tag_filters = &wrong_t_filters };
+    try std.testing.expect(!filter_wrong_t.matches(&event));
+}
+
+test "e_tags list includes uppercase E tags" {
+    try init();
+    defer cleanup();
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["e","1111111111111111111111111111111111111111111111111111111111111111"],["E","2222222222222222222222222222222222222222222222222222222222222222"]]}
+    ;
+
+    var event = try Event.parse(json);
+    defer event.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), event.e_tags.items.len);
+    try std.testing.expectEqual(@as(u8, 0x11), event.e_tags.items[0][0]);
+    try std.testing.expectEqual(@as(u8, 0x22), event.e_tags.items[1][0]);
 }
