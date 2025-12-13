@@ -419,17 +419,18 @@ fn containsInsensitive(haystack: []const u8, needle: []const u8) bool {
 /// NIP-50: Case-insensitive multi-word AND search
 /// Returns true if all words in query appear in content (case-insensitive)
 /// Skips key:value extension pairs per NIP-50 spec
+/// If query contains only extensions (no regular words), returns true
 fn searchMatches(query: []const u8, content: []const u8) bool {
     var words_iter = std.mem.splitScalar(u8, query, ' ');
-    var has_words = false;
     while (words_iter.next()) |word| {
         if (word.len == 0) continue;
         // Skip extension key:value pairs
         if (std.mem.indexOfScalar(u8, word, ':') != null) continue;
-        has_words = true;
+        // Non-extension word: must match
         if (!containsInsensitive(content, word)) return false;
     }
-    return has_words;
+    // All non-extension words matched (or no non-extension words existed)
+    return true;
 }
 
 pub const FilterTagEntry = struct {
@@ -781,6 +782,7 @@ pub const ClientMsg = struct {
             if (filter_val != .object) continue;
 
             var filter = Filter{ .allocator = allocator };
+            errdefer filter.deinit();
             const filter_obj = filter_val.object;
 
             if (filter_obj.get("ids")) |ids_val| {
