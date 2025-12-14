@@ -17,6 +17,7 @@
 
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
+pub const bech32 = @import("bech32.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -69,4 +70,5 @@ test {
     _ = @import("builder.zig");
     _ = @import("auth.zig");
     _ = @import("index_keys.zig");
+    _ = @import("bech32.zig");
 }
