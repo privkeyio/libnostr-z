@@ -712,6 +712,9 @@ pub const ClientMsgType = enum {
     close,
     auth,
     count,
+    neg_open,
+    neg_msg,
+    neg_close,
 };
 
 pub const ClientMsg = struct {
@@ -758,6 +761,21 @@ pub const ClientMsg = struct {
             msg.msg_type = .auth;
         } else if (std.mem.eql(u8, type_str, "COUNT")) {
             msg.msg_type = .count;
+            if (arr.len > 1 and arr[1] == .string) {
+                msg.subscription_id_slice = findStringInJson(json, arr[1].string) orelse "";
+            }
+        } else if (std.mem.eql(u8, type_str, "NEG-OPEN")) {
+            msg.msg_type = .neg_open;
+            if (arr.len > 1 and arr[1] == .string) {
+                msg.subscription_id_slice = findStringInJson(json, arr[1].string) orelse "";
+            }
+        } else if (std.mem.eql(u8, type_str, "NEG-MSG")) {
+            msg.msg_type = .neg_msg;
+            if (arr.len > 1 and arr[1] == .string) {
+                msg.subscription_id_slice = findStringInJson(json, arr[1].string) orelse "";
+            }
+        } else if (std.mem.eql(u8, type_str, "NEG-CLOSE")) {
+            msg.msg_type = .neg_close;
             if (arr.len > 1 and arr[1] == .string) {
                 msg.subscription_id_slice = findStringInJson(json, arr[1].string) orelse "";
             }
@@ -955,6 +973,108 @@ pub const ClientMsg = struct {
         }
 
         return filters.toOwnedSlice(allocator);
+    }
+
+    pub fn getNegFilter(self: *const ClientMsg, allocator: std.mem.Allocator) !?Filter {
+        if (self.msg_type != .neg_open) return null;
+
+        const parsed = std.json.parseFromSlice(std.json.Value, allocator, self.raw_json, .{}) catch return error.InvalidJson;
+        defer parsed.deinit();
+
+        if (parsed.value != .array) return null;
+        const arr = parsed.value.array.items;
+        if (arr.len < 3 or arr[2] != .object) return null;
+
+        var filter = Filter{ .allocator = allocator };
+        errdefer filter.deinit();
+        const filter_obj = arr[2].object;
+
+        if (filter_obj.get("ids")) |ids_val| {
+            if (ids_val == .array) {
+                var ids_list: std.ArrayListUnmanaged([32]u8) = .{};
+                for (ids_val.array.items) |id_val| {
+                    if (id_val == .string and id_val.string.len == 64) {
+                        var id_bytes: [32]u8 = undefined;
+                        if (std.fmt.hexToBytes(&id_bytes, id_val.string)) |_| {
+                            try ids_list.append(allocator, id_bytes);
+                        } else |_| {}
+                    }
+                }
+                if (ids_list.items.len > 0) {
+                    filter.ids_bytes = try ids_list.toOwnedSlice(allocator);
+                } else {
+                    ids_list.deinit(allocator);
+                }
+            }
+        }
+
+        if (filter_obj.get("authors")) |authors_val| {
+            if (authors_val == .array) {
+                var authors_list: std.ArrayListUnmanaged([32]u8) = .{};
+                for (authors_val.array.items) |author_val| {
+                    if (author_val == .string and author_val.string.len == 64) {
+                        var author_bytes: [32]u8 = undefined;
+                        if (std.fmt.hexToBytes(&author_bytes, author_val.string)) |_| {
+                            try authors_list.append(allocator, author_bytes);
+                        } else |_| {}
+                    }
+                }
+                if (authors_list.items.len > 0) {
+                    filter.authors_bytes = try authors_list.toOwnedSlice(allocator);
+                } else {
+                    authors_list.deinit(allocator);
+                }
+            }
+        }
+
+        if (filter_obj.get("kinds")) |kinds_val| {
+            if (kinds_val == .array) {
+                var kinds_list: std.ArrayListUnmanaged(i32) = .{};
+                for (kinds_val.array.items) |kind_val| {
+                    if (kind_val == .integer) {
+                        try kinds_list.append(allocator, @intCast(kind_val.integer));
+                    }
+                }
+                if (kinds_list.items.len > 0) {
+                    filter.kinds_slice = try kinds_list.toOwnedSlice(allocator);
+                } else {
+                    kinds_list.deinit(allocator);
+                }
+            }
+        }
+
+        if (filter_obj.get("since")) |since_val| {
+            if (since_val == .integer) filter.since_val = since_val.integer;
+        }
+
+        if (filter_obj.get("until")) |until_val| {
+            if (until_val == .integer) filter.until_val = until_val.integer;
+        }
+
+        if (filter_obj.get("limit")) |limit_val| {
+            if (limit_val == .integer) filter.limit_val = @intCast(limit_val.integer);
+        }
+
+        return filter;
+    }
+
+    pub fn getNegPayload(self: *const ClientMsg, out: []u8) ![]u8 {
+        if (self.msg_type != .neg_open and self.msg_type != .neg_msg) return error.InvalidJson;
+
+        const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, self.raw_json, .{}) catch return error.InvalidJson;
+        defer parsed.deinit();
+
+        if (parsed.value != .array) return error.InvalidJson;
+        const arr = parsed.value.array.items;
+
+        const payload_idx: usize = if (self.msg_type == .neg_open) 3 else 2;
+        if (arr.len <= payload_idx or arr[payload_idx] != .string) return error.InvalidJson;
+
+        const hex_str = arr[payload_idx].string;
+        if (hex_str.len % 2 != 0 or hex_str.len / 2 > out.len) return error.BufferTooSmall;
+
+        const decoded = std.fmt.hexToBytes(out[0 .. hex_str.len / 2], hex_str) catch return error.InvalidJson;
+        return decoded;
     }
 
     pub fn deinit(self: *ClientMsg) void {
@@ -1201,6 +1321,45 @@ pub const RelayMsg = struct {
         try writer.writeAll("\",{\"count\":");
         try writer.print("{d}", .{count_val});
         try writer.writeAll("}]");
+
+        return fbs.getWritten();
+    }
+
+    pub fn negMsg(sub_id: []const u8, payload: []const u8, buf: []u8) ![]u8 {
+        var fbs = std.io.fixedBufferStream(buf);
+        const writer = fbs.writer();
+
+        try writer.writeAll("[\"NEG-MSG\",\"");
+        try writer.writeAll(sub_id);
+        try writer.writeAll("\",\"");
+
+        for (payload) |b| {
+            try writer.print("{x:0>2}", .{b});
+        }
+
+        try writer.writeAll("\"]");
+
+        return fbs.getWritten();
+    }
+
+    pub fn negErr(sub_id: []const u8, reason: []const u8, buf: []u8) ![]u8 {
+        var fbs = std.io.fixedBufferStream(buf);
+        const writer = fbs.writer();
+
+        try writer.writeAll("[\"NEG-ERR\",\"");
+        try writer.writeAll(sub_id);
+        try writer.writeAll("\",\"");
+
+        for (reason) |c| {
+            switch (c) {
+                '"' => try writer.writeAll("\\\""),
+                '\\' => try writer.writeAll("\\\\"),
+                '\n' => try writer.writeAll("\\n"),
+                else => try writer.writeByte(c),
+            }
+        }
+
+        try writer.writeAll("\"]");
 
         return fbs.getWritten();
     }
@@ -2185,4 +2344,80 @@ test "e_tags list includes uppercase E tags" {
     try std.testing.expectEqual(@as(usize, 2), event.e_tags.items.len);
     try std.testing.expectEqual(@as(u8, 0x11), event.e_tags.items[0][0]);
     try std.testing.expectEqual(@as(u8, 0x22), event.e_tags.items[1][0]);
+}
+
+test "NEG-OPEN message parsing" {
+    const allocator = std.testing.allocator;
+
+    const json =
+        \\["NEG-OPEN","sub1",{"kinds":[1],"authors":["0000000000000000000000000000000000000000000000000000000000000001"]},"6100"]
+    ;
+
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    try std.testing.expectEqual(ClientMsgType.neg_open, msg.msgType());
+    try std.testing.expectEqualStrings("sub1", msg.subscriptionId());
+
+    var payload_buf: [256]u8 = undefined;
+    const payload = try msg.getNegPayload(&payload_buf);
+    try std.testing.expectEqual(@as(usize, 2), payload.len);
+    try std.testing.expectEqual(@as(u8, 0x61), payload[0]);
+    try std.testing.expectEqual(@as(u8, 0x00), payload[1]);
+
+    var filter = (try msg.getNegFilter(allocator)).?;
+    defer filter.deinit();
+    try std.testing.expectEqual(@as(usize, 1), filter.kinds_slice.?.len);
+    try std.testing.expectEqual(@as(i32, 1), filter.kinds_slice.?[0]);
+}
+
+test "NEG-MSG message parsing" {
+    const allocator = std.testing.allocator;
+
+    const json =
+        \\["NEG-MSG","sub1","61deadbeef"]
+    ;
+
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    try std.testing.expectEqual(ClientMsgType.neg_msg, msg.msgType());
+    try std.testing.expectEqualStrings("sub1", msg.subscriptionId());
+
+    var payload_buf: [256]u8 = undefined;
+    const payload = try msg.getNegPayload(&payload_buf);
+    try std.testing.expectEqual(@as(usize, 5), payload.len);
+    try std.testing.expectEqual(@as(u8, 0x61), payload[0]);
+    try std.testing.expectEqual(@as(u8, 0xde), payload[1]);
+}
+
+test "NEG-CLOSE message parsing" {
+    const allocator = std.testing.allocator;
+
+    const json =
+        \\["NEG-CLOSE","sub1"]
+    ;
+
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    try std.testing.expectEqual(ClientMsgType.neg_close, msg.msgType());
+    try std.testing.expectEqualStrings("sub1", msg.subscriptionId());
+}
+
+test "RelayMsg.negMsg formatting" {
+    var buf: [256]u8 = undefined;
+    const payload = [_]u8{ 0x61, 0xde, 0xad, 0xbe, 0xef };
+    const result = try RelayMsg.negMsg("sub1", &payload, &buf);
+    try std.testing.expectEqualStrings(
+        \\["NEG-MSG","sub1","61deadbeef"]
+    , result);
+}
+
+test "RelayMsg.negErr formatting" {
+    var buf: [256]u8 = undefined;
+    const result = try RelayMsg.negErr("sub1", "blocked: query too large", &buf);
+    try std.testing.expectEqualStrings(
+        \\["NEG-ERR","sub1","blocked: query too large"]
+    , result);
 }
