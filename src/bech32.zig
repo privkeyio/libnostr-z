@@ -196,6 +196,10 @@ pub fn decodeNostr(allocator: std.mem.Allocator, input: []const u8) !Decoded {
 fn decodeTlvProfile(allocator: std.mem.Allocator, data: []const u8) !Decoded {
     var pubkey: ?[32]u8 = null;
     var relays: std.ArrayListUnmanaged([]const u8) = .{};
+    errdefer {
+        for (relays.items) |r| allocator.free(r);
+        relays.deinit(allocator);
+    }
 
     var i: usize = 0;
     while (i + 2 <= data.len) {
@@ -229,6 +233,10 @@ fn decodeTlvEvent(allocator: std.mem.Allocator, data: []const u8) !Decoded {
     var author: ?[32]u8 = null;
     var kind: ?u32 = null;
     var relays: std.ArrayListUnmanaged([]const u8) = .{};
+    errdefer {
+        for (relays.items) |r| allocator.free(r);
+        relays.deinit(allocator);
+    }
 
     var i: usize = 0;
     while (i + 2 <= data.len) {
@@ -268,6 +276,11 @@ fn decodeTlvAddr(allocator: std.mem.Allocator, data: []const u8) !Decoded {
     var pubkey: ?[32]u8 = null;
     var kind: ?u32 = null;
     var relays: std.ArrayListUnmanaged([]const u8) = .{};
+    errdefer {
+        if (identifier) |id| allocator.free(id);
+        for (relays.items) |r| allocator.free(r);
+        relays.deinit(allocator);
+    }
 
     var i: usize = 0;
     while (i + 2 <= data.len) {
@@ -307,10 +320,10 @@ fn decodeTlvAddr(allocator: std.mem.Allocator, data: []const u8) !Decoded {
     return Error.InvalidLength;
 }
 
-pub fn toHex(bytes: []const u8, out: []u8) []const u8 {
-    const hex = std.fmt.bytesToHex(bytes[0..32].*, .lower);
-    @memcpy(out[0..64], &hex);
-    return out[0..64];
+pub fn toHex(bytes: *const [32]u8, out: *[64]u8) []const u8 {
+    const hex = std.fmt.bytesToHex(bytes.*, .lower);
+    @memcpy(out, &hex);
+    return out;
 }
 
 test "decode npub" {
