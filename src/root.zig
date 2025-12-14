@@ -15,13 +15,9 @@
 //! - `crypto.zig` - Cryptographic operations
 //! - `negentropy.zig` - NIP-77 negentropy protocol
 
-const std = @import("std");
-
-// Re-export crypto and negentropy as sub-namespaces
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
 
-// Import all modules
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
 const messages_mod = @import("messages.zig");
@@ -31,16 +27,13 @@ const auth_mod = @import("auth.zig");
 const replaceable_mod = @import("replaceable.zig");
 const index_keys_mod = @import("index_keys.zig");
 
-// Re-export Error and errorMessage from event module
 pub const Error = event_mod.Error;
 pub const errorMessage = event_mod.errorMessage;
 
-// Re-export tag types
 pub const TagValue = tags_mod.TagValue;
 pub const TagIndex = tags_mod.TagIndex;
 pub const TagIterator = tags_mod.TagIterator;
 
-// Re-export Event and related functions
 pub const Event = event_mod.Event;
 pub const KindType = event_mod.KindType;
 pub const kindType = event_mod.kindType;
@@ -48,32 +41,26 @@ pub const isExpired = event_mod.isExpired;
 pub const isDeletion = event_mod.isDeletion;
 pub const getDeletionIds = event_mod.getDeletionIds;
 
-// Re-export Filter types
 pub const FilterTagEntry = filter_mod.FilterTagEntry;
 pub const Filter = filter_mod.Filter;
 pub const filtersMatch = filter_mod.filtersMatch;
 
-// Re-export message types
 pub const ClientMsgType = messages_mod.ClientMsgType;
 pub const ClientMsg = messages_mod.ClientMsg;
 pub const RelayMsgType = messages_mod.RelayMsgType;
 pub const RelayMsgParsed = messages_mod.RelayMsgParsed;
 pub const RelayMsg = messages_mod.RelayMsg;
 
-// Re-export builder types
 pub const Keypair = builder_mod.Keypair;
 pub const EventBuilder = builder_mod.EventBuilder;
 
-// Re-export extension types
 pub const Auth = auth_mod.Auth;
 pub const Replaceable = replaceable_mod.Replaceable;
 pub const IndexKeys = index_keys_mod.IndexKeys;
 
-// Re-export init and cleanup
 pub const init = event_mod.init;
 pub const cleanup = event_mod.cleanup;
 
-// Include tests from all modules
 test {
     _ = @import("tags.zig");
     _ = @import("event.zig");
