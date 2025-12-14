@@ -321,9 +321,8 @@ fn decodeTlvAddr(allocator: std.mem.Allocator, data: []const u8) !Decoded {
 }
 
 pub fn toHex(bytes: *const [32]u8, out: *[64]u8) []const u8 {
-    const hex = std.fmt.bytesToHex(bytes.*, .lower);
-    @memcpy(out, &hex);
-    return out;
+    out.* = std.fmt.bytesToHex(bytes.*, .lower);
+    return out[0..];
 }
 
 test "decode npub" {

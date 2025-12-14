@@ -454,3 +454,18 @@ test "isProtected with mixed tags including protected tag" {
     try std.testing.expect(isProtected(&event));
     try std.testing.expectEqual(@as(u32, 3), event.tag_count);
 }
+
+test "isProtected returns false for minus tag with extra elements" {
+    try init();
+    defer cleanup();
+
+    // ["-", "x"] should not be considered protected - must be exactly ["-"]
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["-","x"]]}
+    ;
+
+    var event = try Event.parse(json);
+    defer event.deinit();
+
+    try std.testing.expect(!isProtected(&event));
+}
