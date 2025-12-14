@@ -9,11 +9,16 @@ A Zig library for the Nostr protocol.
 
 - Event parsing, validation, and serialization
 - Event signing with schnorr signatures (via noscrypt)
-- Filter matching
-- Client message parsing (EVENT, REQ, CLOSE, AUTH, COUNT)
-- Relay message serialization (EVENT, OK, EOSE, CLOSED, NOTICE, AUTH, COUNT)
+- Filter matching with NIP-50 search support
+- Client message parsing (EVENT, REQ, CLOSE, AUTH, COUNT, NEG-OPEN, NEG-MSG, NEG-CLOSE)
+- Relay message serialization (EVENT, OK, EOSE, CLOSED, NOTICE, AUTH, COUNT, NEG-MSG, NEG-ERR)
 - Keypair generation
 - Event builder for creating signed events
+- NIP-42 authentication utilities
+- NIP-16 replaceable event handling
+- NIP-63 index key generation
+- NIP-77 negentropy protocol support
+- Case-sensitive single-letter tag indexing (NIP-01)
 
 ## Build
 
