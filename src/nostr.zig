@@ -1,5 +1,6 @@
 const std = @import("std");
 pub const crypto = @import("crypto.zig");
+pub const negentropy = @import("negentropy.zig");
 
 pub const Error = error{
     InvalidJson,
