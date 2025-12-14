@@ -118,7 +118,8 @@ pub fn encodeVarInt(n: u64, out: []u8) usize {
 pub fn decodeVarInt(data: []const u8) struct { value: u64, len: usize } {
     var result: u64 = 0;
     var i: usize = 0;
-    while (i < data.len) : (i += 1) {
+    while (i < data.len and i < 10) : (i += 1) {
+        if (i == 9 and data[i] > 0x01) return .{ .value = 0, .len = 0 };
         result = (result << 7) | (data[i] & 0x7F);
         if (data[i] & 0x80 == 0) return .{ .value = result, .len = i + 1 };
     }
@@ -214,7 +215,7 @@ pub const Negentropy = struct {
     last_timestamp_in: u64 = 0,
     last_timestamp_out: u64 = 0,
 
-    pub const Error = error{ AlreadyInitiated, NotInitiator, InvalidProtocolVersion, UnexpectedMode, ParseError, BufferTooSmall };
+    pub const Error = error{ AlreadyInitiated, NotInitiator, InvalidProtocolVersion, UnexpectedMode, ParseError, BufferTooSmall, OutOfMemory };
 
     pub const ReconcileResult = struct {
         output: []const u8,
@@ -326,7 +327,7 @@ pub const Negentropy = struct {
                             var id: [ID_SIZE]u8 = undefined;
                             @memcpy(&id, q[0..ID_SIZE]);
                             q = q[ID_SIZE..];
-                            their_set.put(id, {}) catch {};
+                            their_set.put(id, {}) catch return Error.OutOfMemory;
                         }
 
                         for (lower..upper) |i| {
@@ -334,12 +335,12 @@ pub const Negentropy = struct {
                             if (their_set.contains(item.id)) {
                                 _ = their_set.remove(item.id);
                             } else {
-                                have_ids.append(allocator, item.id) catch {};
+                                have_ids.append(allocator, item.id) catch return Error.OutOfMemory;
                             }
                         }
 
                         var it = their_set.keyIterator();
-                        while (it.next()) |key| need_ids.append(allocator, key.*) catch {};
+                        while (it.next()) |key| need_ids.append(allocator, key.*) catch return Error.OutOfMemory;
 
                         skip = true;
                         skip_bound = curr_bound;
@@ -387,16 +388,19 @@ pub const Negentropy = struct {
         var pos: usize = 0;
         const num_elems = upper - lower;
         const buckets: usize = 16;
+        const limit = if (self.frame_size_limit > 0) @min(out.len, @as(usize, @intCast(self.frame_size_limit))) else out.len;
 
         if (num_elems < buckets * 2) {
             const bound_len = try self.encodeBound(upper_bound, out[pos..]);
             pos += bound_len;
+            if (pos >= limit) return error.BufferTooSmall;
             out[pos] = @intFromEnum(Mode.id_list);
             pos += 1;
             const count_len = encodeVarInt(num_elems, out[pos..]);
             pos += count_len;
 
             for (lower..upper) |i| {
+                if (pos + ID_SIZE > limit) return error.BufferTooSmall;
                 const item = self.storage.getItem(i);
                 @memcpy(out[pos..][0..ID_SIZE], &item.id);
                 pos += ID_SIZE;
@@ -419,6 +423,7 @@ pub const Negentropy = struct {
 
                 const bound_len = try self.encodeBound(next_bound, out[pos..]);
                 pos += bound_len;
+                if (pos + 1 + FINGERPRINT_SIZE > limit) return error.BufferTooSmall;
                 out[pos] = @intFromEnum(Mode.fingerprint);
                 pos += 1;
                 @memcpy(out[pos..][0..FINGERPRINT_SIZE], &our_fp.buf);
@@ -484,7 +489,8 @@ pub const Negentropy = struct {
             if (curr.id[i] != prev.id[i]) break;
             shared += 1;
         }
-        return Bound.init(curr.timestamp, curr.id[0 .. shared + 1]);
+        const prefix_len = @min(shared + 1, ID_SIZE);
+        return Bound.init(curr.timestamp, curr.id[0..prefix_len]);
     }
 };
 
