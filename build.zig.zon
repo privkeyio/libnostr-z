@@ -4,8 +4,8 @@
     .fingerprint = 0x208aa38f708e8e25,
     .dependencies = .{
         .noscrypt = .{
-            .url = "https://github.com/privkeyio/noscrypt/archive/79c2278.tar.gz",
-            .hash = "noscrypt-0.1.9-q33-Y79w5wA8DKiv18PcNygrNmeMQdF3G-dbfe4TTPYE",
+            .url = "https://github.com/privkeyio/noscrypt/archive/6f9ce44.tar.gz",
+            .hash = "noscrypt-0.1.9-q33-Y_9w5wDS6fAVp_8IQAg8aiZkYMe07TT4i1sBks7L",
         },
     },
     .paths = .{
