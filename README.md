@@ -1,6 +1,6 @@
 # libnostr-z
 
-[![License: LGPL v2.1](https://img.shields.io/badge/License-LGPL%20v2.1-blue.svg)](https://www.gnu.org/licenses/lgpl-2.1)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Zig](https://img.shields.io/badge/Zig-0.15-orange.svg)](https://ziglang.org/)
 
 A Zig library for the Nostr protocol.
@@ -67,7 +67,7 @@ const response = try nostr.RelayMsg.ok(event.id(), true, "", &buf);
 
 ## License
 
-LGPL v2.1 - See [LICENSE](LICENSE)
+MIT - See [LICENSE](LICENSE)
 
 ## Acknowledgments
 
