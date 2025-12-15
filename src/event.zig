@@ -469,3 +469,14 @@ test "isProtected returns false for minus tag with extra elements" {
 
     try std.testing.expect(!isProtected(&event));
 }
+
+test "NIP-65 kind:10002 is classified as replaceable" {
+    try std.testing.expectEqual(KindType.replaceable, kindType(10002));
+    try std.testing.expectEqual(KindType.replaceable, kindType(0));
+    try std.testing.expectEqual(KindType.replaceable, kindType(3));
+    try std.testing.expectEqual(KindType.replaceable, kindType(10000));
+    try std.testing.expectEqual(KindType.replaceable, kindType(19999));
+    try std.testing.expectEqual(KindType.ephemeral, kindType(20000));
+    try std.testing.expectEqual(KindType.addressable, kindType(30000));
+    try std.testing.expectEqual(KindType.regular, kindType(1));
+}
