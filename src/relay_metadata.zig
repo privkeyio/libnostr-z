@@ -126,14 +126,55 @@ const RelayTagIterator = struct {
 
     fn next(self: *RelayTagIterator) ?Entry {
         while (self.pos < self.json.len) {
-            const tag_start = std.mem.indexOfPos(u8, self.json, self.pos, "[") orelse return null;
-            const tag_end = std.mem.indexOfPos(u8, self.json, tag_start, "]") orelse return null;
+            const tag_start = self.findBracket('[') orelse return null;
+            const saved_pos = self.pos;
+            self.pos = tag_start + 1;
+            const tag_end = self.findBracket(']') orelse {
+                self.pos = saved_pos;
+                return null;
+            };
             self.pos = tag_end + 1;
 
             const tag_content = self.json[tag_start + 1 .. tag_end];
             if (self.parseRTag(tag_content)) |entry| {
                 return entry;
             }
+        }
+        return null;
+    }
+
+    fn findBracket(self: *RelayTagIterator, bracket: u8) ?usize {
+        var in_string = false;
+        var escape = false;
+
+        while (self.pos < self.json.len) {
+            const c = self.json[self.pos];
+
+            if (escape) {
+                escape = false;
+                self.pos += 1;
+                continue;
+            }
+
+            if (c == '\\' and in_string) {
+                escape = true;
+                self.pos += 1;
+                continue;
+            }
+
+            if (c == '"') {
+                in_string = !in_string;
+                self.pos += 1;
+                continue;
+            }
+
+            if (!in_string and c == bracket) {
+                const found = self.pos;
+                self.pos += 1;
+                return found;
+            }
+
+            self.pos += 1;
         }
         return null;
     }
@@ -403,4 +444,25 @@ test "RelayList ignores non-r tags" {
 
     try std.testing.expectEqual(@as(usize, 1), list.count());
     try std.testing.expectEqualStrings("wss://relay.example.com", list.relays.items[0].url);
+}
+
+test "RelayList handles URLs with special characters" {
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":10002,"created_at":1700000000,"content":"","tags":[["r","wss://relay.example.com/?foo=]&bar=test"],["r","wss://normal.example.com","write"]]}
+    ;
+
+    var event = try Event.parse(json);
+    defer event.deinit();
+
+    var list = try RelayList.fromEvent(&event, std.testing.allocator);
+    defer list.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), list.count());
+    try std.testing.expectEqualStrings("wss://relay.example.com/?foo=]&bar=test", list.relays.items[0].url);
+    try std.testing.expectEqual(RelayMarker.read_write, list.relays.items[0].marker);
+    try std.testing.expectEqualStrings("wss://normal.example.com", list.relays.items[1].url);
+    try std.testing.expectEqual(RelayMarker.write, list.relays.items[1].marker);
 }
