@@ -65,6 +65,7 @@ pub const Event = struct {
     e_tags: std.ArrayListUnmanaged([32]u8),
     tags: TagIndex,
     tag_count: u32 = 0,
+    protected_val: bool = false,
     allocator: std.mem.Allocator,
 
     pub fn parse(json: []const u8) Error!Event {
@@ -125,7 +126,14 @@ pub const Event = struct {
             if (tags_val == .array) {
                 event.tag_count = @intCast(tags_val.array.items.len);
                 for (tags_val.array.items) |tag| {
-                    if (tag != .array or tag.array.items.len < 2) continue;
+                    if (tag != .array) continue;
+                    if (tag.array.items.len == 1) {
+                        if (tag.array.items[0] == .string and std.mem.eql(u8, tag.array.items[0].string, "-")) {
+                            event.protected_val = true;
+                        }
+                        continue;
+                    }
+                    if (tag.array.items.len < 2) continue;
 
                     const tag_name = if (tag.array.items[0] == .string) tag.array.items[0].string else continue;
                     const tag_value_str = if (tag.array.items[1] == .string) tag.array.items[1].string else continue;
@@ -302,6 +310,10 @@ pub fn isDeletion(event: *const Event) bool {
     return event.kind() == 5;
 }
 
+pub fn isProtected(event: *const Event) bool {
+    return event.protected_val;
+}
+
 pub fn getDeletionIds(allocator: std.mem.Allocator, event: *const Event) ![][32]u8 {
     return allocator.dupe([32]u8, event.e_tags.items);
 }
@@ -397,4 +409,63 @@ test "e_tags list includes uppercase E tags" {
     try std.testing.expectEqual(@as(usize, 2), event.e_tags.items.len);
     try std.testing.expectEqual(@as(u8, 0x11), event.e_tags.items[0][0]);
     try std.testing.expectEqual(@as(u8, 0x22), event.e_tags.items[1][0]);
+}
+
+test "isProtected detects protected events with minus tag" {
+    try init();
+    defer cleanup();
+
+    const protected_json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"protected content","tags":[["-"]]}
+    ;
+
+    var event = try Event.parse(protected_json);
+    defer event.deinit();
+
+    try std.testing.expect(isProtected(&event));
+    try std.testing.expectEqual(@as(u32, 1), event.tag_count);
+}
+
+test "isProtected returns false for non-protected events" {
+    try init();
+    defer cleanup();
+
+    const normal_json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"normal content","tags":[["t","test"]]}
+    ;
+
+    var event = try Event.parse(normal_json);
+    defer event.deinit();
+
+    try std.testing.expect(!isProtected(&event));
+}
+
+test "isProtected with mixed tags including protected tag" {
+    try init();
+    defer cleanup();
+
+    const mixed_json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"mixed content","tags":[["t","hashtag"],["-"],["p","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]]}
+    ;
+
+    var event = try Event.parse(mixed_json);
+    defer event.deinit();
+
+    try std.testing.expect(isProtected(&event));
+    try std.testing.expectEqual(@as(u32, 3), event.tag_count);
+}
+
+test "isProtected returns false for minus tag with extra elements" {
+    try init();
+    defer cleanup();
+
+    // ["-", "x"] should not be considered protected - must be exactly ["-"]
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["-","x"]]}
+    ;
+
+    var event = try Event.parse(json);
+    defer event.deinit();
+
+    try std.testing.expect(!isProtected(&event));
 }

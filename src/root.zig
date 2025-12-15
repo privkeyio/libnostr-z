@@ -40,6 +40,7 @@ pub const KindType = event_mod.KindType;
 pub const kindType = event_mod.kindType;
 pub const isExpired = event_mod.isExpired;
 pub const isDeletion = event_mod.isDeletion;
+pub const isProtected = event_mod.isProtected;
 pub const getDeletionIds = event_mod.getDeletionIds;
 
 pub const FilterTagEntry = filter_mod.FilterTagEntry;
