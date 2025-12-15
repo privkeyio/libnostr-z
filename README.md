@@ -18,6 +18,8 @@ A Zig library for the Nostr protocol.
 | [45](https://github.com/nostr-protocol/nips/blob/master/45.md) | Event Counts | COUNT message |
 | [50](https://github.com/nostr-protocol/nips/blob/master/50.md) | Search | Filter `search` field |
 | [63](https://github.com/nostr-protocol/nips/blob/master/63.md) | Index Keys | `IndexKeys` utilities |
+| [65](https://github.com/nostr-protocol/nips/blob/master/65.md) | Relay List Metadata | `relay_metadata` module |
+| [70](https://github.com/nostr-protocol/nips/blob/master/70.md) | Protected Events | `isProtected` |
 | [77](https://github.com/nostr-protocol/nips/blob/master/77.md) | Negentropy | Full protocol support |
 
 ## Build
