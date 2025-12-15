@@ -1,6 +1,4 @@
 const std = @import("std");
-const crypto = @import("crypto.zig");
-const utils = @import("utils.zig");
 
 pub const NonceTag = struct {
     nonce: u64,
