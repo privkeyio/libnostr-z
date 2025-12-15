@@ -216,6 +216,7 @@ fn decodeTlvProfile(allocator: std.mem.Allocator, data: []const u8) !Decoded {
             },
             1 => {
                 const relay = try allocator.dupe(u8, v);
+                errdefer allocator.free(relay);
                 try relays.append(allocator, relay);
             },
             else => {},
@@ -253,6 +254,7 @@ fn decodeTlvEvent(allocator: std.mem.Allocator, data: []const u8) !Decoded {
             },
             1 => {
                 const relay = try allocator.dupe(u8, v);
+                errdefer allocator.free(relay);
                 try relays.append(allocator, relay);
             },
             2 => if (l == 32) {
@@ -297,6 +299,7 @@ fn decodeTlvAddr(allocator: std.mem.Allocator, data: []const u8) !Decoded {
             },
             1 => {
                 const relay = try allocator.dupe(u8, v);
+                errdefer allocator.free(relay);
                 try relays.append(allocator, relay);
             },
             2 => if (l == 32) {
