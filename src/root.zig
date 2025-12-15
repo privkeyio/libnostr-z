@@ -15,11 +15,13 @@
 //! - `utils.zig` - JSON parsing utilities
 //! - `crypto.zig` - Cryptographic operations
 //! - `negentropy.zig` - NIP-77 negentropy protocol
+//! - `pow.zig` - NIP-13 Proof of Work
 
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
 pub const bech32 = @import("bech32.zig");
 pub const relay_metadata = @import("relay_metadata.zig");
+pub const pow = @import("pow.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -72,7 +74,10 @@ test {
     _ = @import("messages.zig");
     _ = @import("builder.zig");
     _ = @import("auth.zig");
+    _ = @import("replaceable.zig");
     _ = @import("index_keys.zig");
     _ = @import("bech32.zig");
     _ = @import("relay_metadata.zig");
+    _ = @import("pow.zig");
+    _ = @import("negentropy.zig");
 }

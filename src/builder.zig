@@ -1,6 +1,7 @@
 const std = @import("std");
 pub const crypto = @import("crypto.zig");
 const utils = @import("utils.zig");
+const pow = @import("pow.zig");
 
 pub const Keypair = struct {
     secret_key: [32]u8,
@@ -28,6 +29,8 @@ pub const EventBuilder = struct {
     kind_val: i32 = 1,
     content_slice: []const u8 = "",
     tags_data: []const []const []const u8 = &[_][]const []const u8{},
+    mined_nonce: ?u64 = null,
+    mined_target: ?u8 = null,
 
     pub fn setKind(self: *EventBuilder, k: i32) *EventBuilder {
         self.kind_val = k;
@@ -96,6 +99,74 @@ pub const EventBuilder = struct {
         };
     }
 
+    pub fn mine(self: *EventBuilder, keypair: *const Keypair, target_difficulty: u8) !u64 {
+        @memcpy(&self.pubkey_bytes, &keypair.public_key);
+
+        if (self.created_at_val == 0) {
+            self.created_at_val = std.time.timestamp();
+        }
+
+        var nonce: u64 = 0;
+        var nonce_str_buf: [20]u8 = undefined;
+        var target_str_buf: [3]u8 = undefined;
+        const target_str = std.fmt.bufPrint(&target_str_buf, "{d}", .{target_difficulty}) catch unreachable;
+
+        var commitment_prefix_buf: [8192]u8 = undefined;
+        var prefix_fbs = std.io.fixedBufferStream(&commitment_prefix_buf);
+        const prefix_writer = prefix_fbs.writer();
+
+        try prefix_writer.writeAll("[0,\"");
+        for (&keypair.public_key) |byte| {
+            try prefix_writer.print("{x:0>2}", .{byte});
+        }
+        try prefix_writer.writeAll("\",");
+        try prefix_writer.print("{d}", .{self.created_at_val});
+        try prefix_writer.writeAll(",");
+        try prefix_writer.print("{d}", .{self.kind_val});
+        try prefix_writer.writeAll(",[");
+
+        for (self.tags_data, 0..) |tag, i| {
+            if (i > 0) try prefix_writer.writeByte(',');
+            try prefix_writer.writeByte('[');
+            for (tag, 0..) |elem, j| {
+                if (j > 0) try prefix_writer.writeByte(',');
+                try prefix_writer.writeByte('"');
+                try utils.writeJsonEscaped(prefix_writer, elem);
+                try prefix_writer.writeByte('"');
+            }
+            try prefix_writer.writeByte(']');
+        }
+
+        const has_existing_tags = self.tags_data.len > 0;
+        const prefix = prefix_fbs.getWritten();
+
+        while (true) : (nonce += 1) {
+            const nonce_str = std.fmt.bufPrint(&nonce_str_buf, "{d}", .{nonce}) catch unreachable;
+
+            var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+            hasher.update(prefix);
+            if (has_existing_tags) hasher.update(",");
+            hasher.update("[\"nonce\",\"");
+            hasher.update(nonce_str);
+            hasher.update("\",\"");
+            hasher.update(target_str);
+            hasher.update("\"]],\"");
+            try utils.writeJsonEscapedHash(&hasher, self.content_slice);
+            hasher.update("\"]");
+
+            self.id_bytes = hasher.finalResult();
+
+            if (pow.countLeadingZeroBits(&self.id_bytes) >= target_difficulty) {
+                self.mined_nonce = nonce;
+                self.mined_target = target_difficulty;
+                crypto.sign(&keypair.secret_key, &self.id_bytes, &self.sig_bytes) catch {
+                    return error.SignatureFailed;
+                };
+                return nonce;
+            }
+        }
+    }
+
     pub fn serialize(self: *const EventBuilder, buf: []u8) ![]u8 {
         var fbs = std.io.fixedBufferStream(buf);
         const writer = fbs.writer();
@@ -126,6 +197,15 @@ pub const EventBuilder = struct {
             try writer.writeByte(']');
         }
 
+        if (self.mined_nonce) |nonce| {
+            if (self.tags_data.len > 0) try writer.writeByte(',');
+            try writer.writeAll("[\"nonce\",\"");
+            try writer.print("{d}", .{nonce});
+            try writer.writeAll("\",\"");
+            try writer.print("{d}", .{self.mined_target.?});
+            try writer.writeAll("\"]");
+        }
+
         try writer.writeAll("],\"content\":\"");
         try utils.writeJsonEscaped(writer, self.content_slice);
         try writer.writeAll("\",\"sig\":\"");
@@ -151,4 +231,57 @@ test "event builder" {
     var buf: [4096]u8 = undefined;
     const json = try builder.serialize(&buf);
     try std.testing.expect(json.len > 0);
+}
+
+test "event builder - mine with PoW" {
+    const event_mod = @import("event.zig");
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const keypair = Keypair.generate();
+    var builder = EventBuilder{};
+    _ = builder.setKind(1).setContent("It's just me mining my own business");
+    const nonce = try builder.mine(&keypair, 8);
+
+    try std.testing.expect(nonce >= 0);
+    try std.testing.expect(pow.countLeadingZeroBits(&builder.id_bytes) >= 8);
+    try std.testing.expectEqual(@as(?u64, nonce), builder.mined_nonce);
+    try std.testing.expectEqual(@as(?u8, 8), builder.mined_target);
+
+    var buf: [4096]u8 = undefined;
+    const json = try builder.serialize(&buf);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"nonce\"") != null);
+
+    var event = try event_mod.Event.parse(json);
+    defer event.deinit();
+    try event.validate();
+
+    const nonce_tag = pow.getNonceTag(json).?;
+    try std.testing.expectEqual(nonce, nonce_tag.nonce);
+    try std.testing.expectEqual(@as(?u8, 8), nonce_tag.target_difficulty);
+}
+
+test "event builder - mine with existing tags" {
+    const event_mod = @import("event.zig");
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const keypair = Keypair.generate();
+    var builder = EventBuilder{};
+    const tags = [_][]const []const u8{
+        &[_][]const u8{ "t", "nostr" },
+    };
+    _ = builder.setKind(1).setContent("test").setTags(&tags);
+    _ = try builder.mine(&keypair, 4);
+
+    try std.testing.expect(pow.countLeadingZeroBits(&builder.id_bytes) >= 4);
+
+    var buf: [4096]u8 = undefined;
+    const json = try builder.serialize(&buf);
+    try std.testing.expect(std.mem.indexOf(u8, json, "[\"t\",\"nostr\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "[\"nonce\",\"") != null);
+
+    var event = try event_mod.Event.parse(json);
+    defer event.deinit();
+    try event.validate();
 }
