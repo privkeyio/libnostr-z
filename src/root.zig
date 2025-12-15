@@ -74,8 +74,10 @@ test {
     _ = @import("messages.zig");
     _ = @import("builder.zig");
     _ = @import("auth.zig");
+    _ = @import("replaceable.zig");
     _ = @import("index_keys.zig");
     _ = @import("bech32.zig");
     _ = @import("relay_metadata.zig");
     _ = @import("pow.zig");
+    _ = @import("negentropy.zig");
 }
