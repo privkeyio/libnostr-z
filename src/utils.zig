@@ -19,6 +19,27 @@ pub fn writeJsonEscaped(writer: anytype, str: []const u8) !void {
     }
 }
 
+pub fn writeJsonEscapedHash(hasher: *std.crypto.hash.sha2.Sha256, str: []const u8) !void {
+    var escape_buf: [6]u8 = undefined;
+    for (str) |c| {
+        switch (c) {
+            '"' => hasher.update("\\\""),
+            '\\' => hasher.update("\\\\"),
+            '\n' => hasher.update("\\n"),
+            '\r' => hasher.update("\\r"),
+            '\t' => hasher.update("\\t"),
+            else => {
+                if (c < 0x20) {
+                    const escaped = std.fmt.bufPrint(&escape_buf, "\\u{x:0>4}", .{c}) catch unreachable;
+                    hasher.update(escaped);
+                } else {
+                    hasher.update(&[_]u8{c});
+                }
+            },
+        }
+    }
+}
+
 pub fn findJsonValue(json: []const u8, key: []const u8) ?[]const u8 {
     var search_buf: [68]u8 = undefined;
     const search = std.fmt.bufPrint(&search_buf, "\"{s}\":", .{key}) catch return null;
