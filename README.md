@@ -5,20 +5,20 @@
 
 A Zig library for the Nostr protocol.
 
-## Features
+## NIP Support
 
-- Event parsing, validation, and serialization
-- Event signing with schnorr signatures (via noscrypt)
-- Filter matching with NIP-50 search support
-- Client message parsing (EVENT, REQ, CLOSE, AUTH, COUNT, NEG-OPEN, NEG-MSG, NEG-CLOSE)
-- Relay message serialization (EVENT, OK, EOSE, CLOSED, NOTICE, AUTH, COUNT, NEG-MSG, NEG-ERR)
-- Keypair generation
-- Event builder for creating signed events
-- NIP-42 authentication utilities
-- NIP-16 replaceable event handling
-- NIP-63 index key generation
-- NIP-77 negentropy protocol support
-- Case-sensitive single-letter tag indexing (NIP-01)
+| NIP | Description | Implementation |
+|-----|-------------|----------------|
+| [01](https://github.com/nostr-protocol/nips/blob/master/01.md) | Basic Protocol | Events, filters, client/relay messages |
+| [09](https://github.com/nostr-protocol/nips/blob/master/09.md) | Event Deletion | `isDeletion`, `getDeletionIds` |
+| [16](https://github.com/nostr-protocol/nips/blob/master/16.md) | Replaceable Events | `Replaceable`, `kindType` (includes addressable) |
+| [19](https://github.com/nostr-protocol/nips/blob/master/19.md) | bech32 Entities | npub, nsec, nprofile, nevent, naddr |
+| [40](https://github.com/nostr-protocol/nips/blob/master/40.md) | Expiration Timestamp | `isExpired` |
+| [42](https://github.com/nostr-protocol/nips/blob/master/42.md) | Authentication | `Auth` utilities, AUTH message |
+| [45](https://github.com/nostr-protocol/nips/blob/master/45.md) | Event Counts | COUNT message |
+| [50](https://github.com/nostr-protocol/nips/blob/master/50.md) | Search | Filter `search` field |
+| [63](https://github.com/nostr-protocol/nips/blob/master/63.md) | Index Keys | `IndexKeys` utilities |
+| [77](https://github.com/nostr-protocol/nips/blob/master/77.md) | Negentropy | Full protocol support |
 
 ## Build
 
