@@ -3,6 +3,7 @@ const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
 const tags = @import("tags.zig");
 const utils = @import("utils.zig");
+const hex = @import("hex.zig");
 
 pub const Event = event_mod.Event;
 pub const Error = event_mod.Error;
@@ -526,9 +527,9 @@ pub const RelayMsg = struct {
 
         try writer.writeAll("[\"OK\",\"");
 
-        for (event_id) |b| {
-            try writer.print("{x:0>2}", .{b});
-        }
+        var id_hex: [64]u8 = undefined;
+        hex.encode(event_id, &id_hex);
+        try writer.writeAll(&id_hex);
 
         try writer.writeAll("\",");
         try writer.writeAll(if (success) "true" else "false");
@@ -607,9 +608,9 @@ pub const RelayMsg = struct {
 
         try writer.writeAll("[\"AUTH\",\"");
 
-        for (challenge) |b| {
-            try writer.print("{x:0>2}", .{b});
-        }
+        var challenge_hex: [64]u8 = undefined;
+        hex.encode(challenge, &challenge_hex);
+        try writer.writeAll(&challenge_hex);
 
         try writer.writeAll("\"]");
 
@@ -637,9 +638,10 @@ pub const RelayMsg = struct {
         try writer.writeAll(sub_id);
         try writer.writeAll("\",\"");
 
-        for (payload) |b| {
-            try writer.print("{x:0>2}", .{b});
-        }
+        const hex_len = payload.len * 2;
+        if (fbs.pos + hex_len + 2 > buf.len) return error.NoSpaceLeft;
+        hex.encode(payload, buf[fbs.pos..][0..hex_len]);
+        fbs.pos += hex_len;
 
         try writer.writeAll("\"]");
 

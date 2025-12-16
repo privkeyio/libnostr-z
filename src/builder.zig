@@ -2,6 +2,7 @@ const std = @import("std");
 pub const crypto = @import("crypto.zig");
 const utils = @import("utils.zig");
 const pow = @import("pow.zig");
+const hex = @import("hex.zig");
 
 pub const Keypair = struct {
     secret_key: [32]u8,
@@ -65,9 +66,9 @@ pub const EventBuilder = struct {
 
         try writer.writeAll("[0,\"");
 
-        for (&keypair.public_key) |byte| {
-            try writer.print("{x:0>2}", .{byte});
-        }
+        var pk_hex: [64]u8 = undefined;
+        hex.encode(&keypair.public_key, &pk_hex);
+        try writer.writeAll(&pk_hex);
 
         try writer.writeAll("\",");
         try writer.print("{d}", .{self.created_at_val});
@@ -116,9 +117,9 @@ pub const EventBuilder = struct {
         const prefix_writer = prefix_fbs.writer();
 
         try prefix_writer.writeAll("[0,\"");
-        for (&keypair.public_key) |byte| {
-            try prefix_writer.print("{x:0>2}", .{byte});
-        }
+        var mine_pk_hex: [64]u8 = undefined;
+        hex.encode(&keypair.public_key, &mine_pk_hex);
+        try prefix_writer.writeAll(&mine_pk_hex);
         try prefix_writer.writeAll("\",");
         try prefix_writer.print("{d}", .{self.created_at_val});
         try prefix_writer.writeAll(",");
@@ -172,13 +173,13 @@ pub const EventBuilder = struct {
         const writer = fbs.writer();
 
         try writer.writeAll("{\"id\":\"");
-        for (self.id_bytes) |b| {
-            try writer.print("{x:0>2}", .{b});
-        }
+        var ser_id_hex: [64]u8 = undefined;
+        hex.encode(&self.id_bytes, &ser_id_hex);
+        try writer.writeAll(&ser_id_hex);
         try writer.writeAll("\",\"pubkey\":\"");
-        for (self.pubkey_bytes) |b| {
-            try writer.print("{x:0>2}", .{b});
-        }
+        var ser_pk_hex: [64]u8 = undefined;
+        hex.encode(&self.pubkey_bytes, &ser_pk_hex);
+        try writer.writeAll(&ser_pk_hex);
         try writer.writeAll("\",\"created_at\":");
         try writer.print("{d}", .{self.created_at_val});
         try writer.writeAll(",\"kind\":");
@@ -209,9 +210,9 @@ pub const EventBuilder = struct {
         try writer.writeAll("],\"content\":\"");
         try utils.writeJsonEscaped(writer, self.content_slice);
         try writer.writeAll("\",\"sig\":\"");
-        for (self.sig_bytes) |b| {
-            try writer.print("{x:0>2}", .{b});
-        }
+        var ser_sig_hex: [128]u8 = undefined;
+        hex.encode(&self.sig_bytes, &ser_sig_hex);
+        try writer.writeAll(&ser_sig_hex);
         try writer.writeAll("\"}");
 
         return fbs.getWritten();
