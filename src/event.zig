@@ -92,13 +92,11 @@ pub const Event = struct {
             .tags = TagIndex.init(allocator),
         };
 
-        event.tag_count = utils.TagIterator.count(json, "tags");
-        var iter = utils.TagIterator.init(json, "tags");
-        while (iter) |*it| {
-            const tag = it.next() orelse {
-                iter = null;
-                break;
-            };
+        var iter = utils.TagIterator.init(json, "tags") orelse {
+            return event;
+        };
+        while (iter.next()) |tag| {
+            event.tag_count += 1;
 
             if (tag.name.len == 1 and tag.name[0] == '-' and tag.value.len == 0) {
                 event.protected_val = true;

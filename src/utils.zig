@@ -343,12 +343,6 @@ pub const TagIterator = struct {
         }
     }
 
-    pub fn count(json: []const u8, key: []const u8) u32 {
-        var iter = init(json, key) orelse return 0;
-        var cnt: u32 = 0;
-        while (iter.next() != null) cnt += 1;
-        return cnt;
-    }
 };
 
 pub fn containsInsensitive(haystack: []const u8, needle: []const u8) bool {
