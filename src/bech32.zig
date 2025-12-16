@@ -114,6 +114,9 @@ pub const Decoded = union(enum) {
     profile: Profile,
     event: Event,
     addr: Addr,
+    offer: Offer,
+    debit: Debit,
+    manage: Manage,
 
     pub const Profile = struct {
         pubkey: [32]u8,
@@ -134,6 +137,33 @@ pub const Decoded = union(enum) {
         relays: []const []const u8,
     };
 
+    pub const PricingType = enum(u8) {
+        fixed = 0,
+        variable = 1,
+        spontaneous = 2,
+    };
+
+    pub const Offer = struct {
+        pubkey: [32]u8,
+        relay: []const u8,
+        offer_id: []const u8,
+        pricing_type: ?PricingType = null,
+        price: ?u64 = null,
+        currency: ?[]const u8 = null,
+    };
+
+    pub const Debit = struct {
+        pubkey: [32]u8,
+        relay: []const u8,
+        pointer: ?[]const u8 = null,
+    };
+
+    pub const Manage = struct {
+        pubkey: [32]u8,
+        relay: []const u8,
+        pointer: ?[]const u8 = null,
+    };
+
     pub fn deinit(self: Decoded, allocator: std.mem.Allocator) void {
         switch (self) {
             .profile => |p| freeRelays(allocator, p.relays),
@@ -141,6 +171,19 @@ pub const Decoded = union(enum) {
             .addr => |a| {
                 allocator.free(a.identifier);
                 freeRelays(allocator, a.relays);
+            },
+            .offer => |o| {
+                allocator.free(o.relay);
+                allocator.free(o.offer_id);
+                if (o.currency) |c| allocator.free(c);
+            },
+            .debit => |d| {
+                allocator.free(d.relay);
+                if (d.pointer) |p| allocator.free(p);
+            },
+            .manage => |m| {
+                allocator.free(m.relay);
+                if (m.pointer) |p| allocator.free(p);
             },
             else => {},
         }
@@ -188,6 +231,15 @@ pub fn decodeNostr(allocator: std.mem.Allocator, input: []const u8) !Decoded {
     }
     if (std.mem.eql(u8, hrp, "naddr")) {
         return decodeTlvAddr(allocator, data);
+    }
+    if (std.mem.eql(u8, hrp, "noffer")) {
+        return decodeTlvOffer(allocator, data);
+    }
+    if (std.mem.eql(u8, hrp, "ndebit")) {
+        return decodeTlvDebit(allocator, data);
+    }
+    if (std.mem.eql(u8, hrp, "nmanage")) {
+        return decodeTlvManage(allocator, data);
     }
 
     return Error.InvalidPrefix;
@@ -321,6 +373,128 @@ fn decodeTlvAddr(allocator: std.mem.Allocator, data: []const u8) !Decoded {
         } };
     }
     return Error.InvalidLength;
+}
+
+fn decodeTlvOffer(allocator: std.mem.Allocator, data: []const u8) !Decoded {
+    var pubkey: ?[32]u8 = null;
+    var relay: ?[]const u8 = null;
+    var offer_id: ?[]const u8 = null;
+    var pricing_type: ?Decoded.PricingType = null;
+    var price: ?u64 = null;
+    var currency: ?[]const u8 = null;
+    errdefer {
+        if (relay) |r| allocator.free(r);
+        if (offer_id) |o| allocator.free(o);
+        if (currency) |c| allocator.free(c);
+    }
+
+    var i: usize = 0;
+    while (i + 2 <= data.len) {
+        const t = data[i];
+        const l = data[i + 1];
+        i += 2;
+        if (i + l > data.len) break;
+        const v = data[i .. i + l];
+        i += l;
+
+        switch (t) {
+            0 => if (l == 32) {
+                pubkey = v[0..32].*;
+            },
+            1 => {
+                const new_relay = try allocator.dupe(u8, v);
+                if (relay) |r| allocator.free(r);
+                relay = new_relay;
+            },
+            2 => {
+                const new_offer_id = try allocator.dupe(u8, v);
+                if (offer_id) |o| allocator.free(o);
+                offer_id = new_offer_id;
+            },
+            3 => if (l == 1) {
+                pricing_type = std.meta.intToEnum(Decoded.PricingType, v[0]) catch null;
+            },
+            4 => if (l == 8) {
+                price = std.mem.readInt(u64, v[0..8], .big);
+            },
+            5 => {
+                const new_currency = try allocator.dupe(u8, v);
+                if (currency) |c| allocator.free(c);
+                currency = new_currency;
+            },
+            else => {},
+        }
+    }
+
+    if (pubkey != null and relay != null and offer_id != null) {
+        return .{ .offer = .{
+            .pubkey = pubkey.?,
+            .relay = relay.?,
+            .offer_id = offer_id.?,
+            .pricing_type = pricing_type,
+            .price = price,
+            .currency = currency,
+        } };
+    }
+    return Error.InvalidLength;
+}
+
+const PubkeyRelayPointer = struct {
+    pubkey: [32]u8,
+    relay: []const u8,
+    pointer: ?[]const u8,
+};
+
+fn decodeTlvPubkeyRelayPointer(allocator: std.mem.Allocator, data: []const u8) !PubkeyRelayPointer {
+    var pubkey: ?[32]u8 = null;
+    var relay: ?[]const u8 = null;
+    var pointer: ?[]const u8 = null;
+    errdefer {
+        if (relay) |r| allocator.free(r);
+        if (pointer) |p| allocator.free(p);
+    }
+
+    var i: usize = 0;
+    while (i + 2 <= data.len) {
+        const t = data[i];
+        const l = data[i + 1];
+        i += 2;
+        if (i + l > data.len) break;
+        const v = data[i .. i + l];
+        i += l;
+
+        switch (t) {
+            0 => if (l == 32) {
+                pubkey = v[0..32].*;
+            },
+            1 => {
+                const new_relay = try allocator.dupe(u8, v);
+                if (relay) |r| allocator.free(r);
+                relay = new_relay;
+            },
+            2 => {
+                const new_pointer = try allocator.dupe(u8, v);
+                if (pointer) |p| allocator.free(p);
+                pointer = new_pointer;
+            },
+            else => {},
+        }
+    }
+
+    if (pubkey != null and relay != null) {
+        return .{ .pubkey = pubkey.?, .relay = relay.?, .pointer = pointer };
+    }
+    return Error.InvalidLength;
+}
+
+fn decodeTlvDebit(allocator: std.mem.Allocator, data: []const u8) !Decoded {
+    const parsed = try decodeTlvPubkeyRelayPointer(allocator, data);
+    return .{ .debit = .{ .pubkey = parsed.pubkey, .relay = parsed.relay, .pointer = parsed.pointer } };
+}
+
+fn decodeTlvManage(allocator: std.mem.Allocator, data: []const u8) !Decoded {
+    const parsed = try decodeTlvPubkeyRelayPointer(allocator, data);
+    return .{ .manage = .{ .pubkey = parsed.pubkey, .relay = parsed.relay, .pointer = parsed.pointer } };
 }
 
 pub fn toHex(bytes: *const [32]u8, out: *[64]u8) []const u8 {
