@@ -90,4 +90,5 @@ test {
     _ = @import("utils.zig");
     _ = @import("hex.zig");
     _ = @import("nwc.zig");
+    _ = @import("crypto.zig");
 }
