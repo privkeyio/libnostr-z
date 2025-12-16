@@ -436,7 +436,13 @@ fn decodeTlvOffer(allocator: std.mem.Allocator, data: []const u8) !Decoded {
     return Error.InvalidLength;
 }
 
-fn decodeTlvDebit(allocator: std.mem.Allocator, data: []const u8) !Decoded {
+const PubkeyRelayPointer = struct {
+    pubkey: [32]u8,
+    relay: []const u8,
+    pointer: ?[]const u8,
+};
+
+fn decodeTlvPubkeyRelayPointer(allocator: std.mem.Allocator, data: []const u8) !PubkeyRelayPointer {
     var pubkey: ?[32]u8 = null;
     var relay: ?[]const u8 = null;
     var pointer: ?[]const u8 = null;
@@ -471,57 +477,19 @@ fn decodeTlvDebit(allocator: std.mem.Allocator, data: []const u8) !Decoded {
     }
 
     if (pubkey != null and relay != null) {
-        return .{ .debit = .{
-            .pubkey = pubkey.?,
-            .relay = relay.?,
-            .pointer = pointer,
-        } };
+        return .{ .pubkey = pubkey.?, .relay = relay.?, .pointer = pointer };
     }
     return Error.InvalidLength;
 }
 
+fn decodeTlvDebit(allocator: std.mem.Allocator, data: []const u8) !Decoded {
+    const parsed = try decodeTlvPubkeyRelayPointer(allocator, data);
+    return .{ .debit = .{ .pubkey = parsed.pubkey, .relay = parsed.relay, .pointer = parsed.pointer } };
+}
+
 fn decodeTlvManage(allocator: std.mem.Allocator, data: []const u8) !Decoded {
-    var pubkey: ?[32]u8 = null;
-    var relay: ?[]const u8 = null;
-    var pointer: ?[]const u8 = null;
-    errdefer {
-        if (relay) |r| allocator.free(r);
-        if (pointer) |p| allocator.free(p);
-    }
-
-    var i: usize = 0;
-    while (i + 2 <= data.len) {
-        const t = data[i];
-        const l = data[i + 1];
-        i += 2;
-        if (i + l > data.len) break;
-        const v = data[i .. i + l];
-        i += l;
-
-        switch (t) {
-            0 => if (l == 32) {
-                pubkey = v[0..32].*;
-            },
-            1 => {
-                if (relay) |r| allocator.free(r);
-                relay = try allocator.dupe(u8, v);
-            },
-            2 => {
-                if (pointer) |p| allocator.free(p);
-                pointer = try allocator.dupe(u8, v);
-            },
-            else => {},
-        }
-    }
-
-    if (pubkey != null and relay != null) {
-        return .{ .manage = .{
-            .pubkey = pubkey.?,
-            .relay = relay.?,
-            .pointer = pointer,
-        } };
-    }
-    return Error.InvalidLength;
+    const parsed = try decodeTlvPubkeyRelayPointer(allocator, data);
+    return .{ .manage = .{ .pubkey = parsed.pubkey, .relay = parsed.relay, .pointer = parsed.pointer } };
 }
 
 pub fn toHex(bytes: *const [32]u8, out: *[64]u8) []const u8 {
