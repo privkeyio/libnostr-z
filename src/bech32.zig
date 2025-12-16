@@ -402,12 +402,14 @@ fn decodeTlvOffer(allocator: std.mem.Allocator, data: []const u8) !Decoded {
                 pubkey = v[0..32].*;
             },
             1 => {
+                const new_relay = try allocator.dupe(u8, v);
                 if (relay) |r| allocator.free(r);
-                relay = try allocator.dupe(u8, v);
+                relay = new_relay;
             },
             2 => {
+                const new_offer_id = try allocator.dupe(u8, v);
                 if (offer_id) |o| allocator.free(o);
-                offer_id = try allocator.dupe(u8, v);
+                offer_id = new_offer_id;
             },
             3 => if (l == 1) {
                 pricing_type = std.meta.intToEnum(Decoded.PricingType, v[0]) catch null;
@@ -416,8 +418,9 @@ fn decodeTlvOffer(allocator: std.mem.Allocator, data: []const u8) !Decoded {
                 price = std.mem.readInt(u64, v[0..8], .big);
             },
             5 => {
+                const new_currency = try allocator.dupe(u8, v);
                 if (currency) |c| allocator.free(c);
-                currency = try allocator.dupe(u8, v);
+                currency = new_currency;
             },
             else => {},
         }
@@ -465,12 +468,14 @@ fn decodeTlvPubkeyRelayPointer(allocator: std.mem.Allocator, data: []const u8) !
                 pubkey = v[0..32].*;
             },
             1 => {
+                const new_relay = try allocator.dupe(u8, v);
                 if (relay) |r| allocator.free(r);
-                relay = try allocator.dupe(u8, v);
+                relay = new_relay;
             },
             2 => {
+                const new_pointer = try allocator.dupe(u8, v);
                 if (pointer) |p| allocator.free(p);
-                pointer = try allocator.dupe(u8, v);
+                pointer = new_pointer;
             },
             else => {},
         }
