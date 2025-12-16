@@ -19,6 +19,7 @@
 //! - `nwc.zig` - NIP-47 Nostr Wallet Connect
 //! - `nip46.zig` - NIP-46 Nostr Remote Signing
 //! - `clink.zig` - CLINK protocol types and error codes
+//! - `joinstr.zig` - NIP Joinstr (Kind 2022) coinjoin pools
 
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
@@ -28,6 +29,7 @@ pub const pow = @import("pow.zig");
 pub const nwc = @import("nwc.zig");
 pub const nip46 = @import("nip46.zig");
 pub const clink = @import("clink.zig");
+pub const joinstr = @import("joinstr.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -97,4 +99,5 @@ test {
     _ = @import("crypto.zig");
     _ = @import("nip46.zig");
     _ = @import("clink.zig");
+    _ = @import("joinstr.zig");
 }
