@@ -8,19 +8,30 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: macos-latest
+
+    runs-on: ${{ matrix.os }}
     if: github.event.pull_request.draft != true
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libsecp256k1-dev libssl-dev
 
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install secp256k1 openssl@3
+
       - name: Setup Zig
-        run: |
-          curl -L https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz | tar -xJ
-          echo "$PWD/zig-x86_64-linux-0.15.2" >> $GITHUB_PATH
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
 
       - name: Build
         run: zig build
