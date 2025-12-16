@@ -18,7 +18,7 @@
 //! - `pow.zig` - NIP-13 Proof of Work
 //! - `nwc.zig` - NIP-47 Nostr Wallet Connect
 //! - `nip46.zig` - NIP-46 Nostr Remote Signing
-//! - `clink.zig` - CLINK protocol error codes
+//! - `clink.zig` - CLINK protocol types and error codes
 
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
