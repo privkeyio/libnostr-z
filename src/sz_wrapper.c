@@ -12,6 +12,10 @@
 #define SZ_USE_X86_AVX2 0
 #define SZ_USE_ARM_NEON 0
 #define SZ_USE_ARM_SVE 0
+#define SZ_USE_ARM_SVE2 0
+#define SZ_USE_NEON_AES 0
+#define SZ_USE_NEON_SHA 0
+#define SZ_USE_SVE2_AES 0
 #include "stringzilla/find.h"
 #include "stringzilla/hash.h"
 
