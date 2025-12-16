@@ -2,6 +2,7 @@ const std = @import("std");
 pub const crypto = @import("crypto.zig");
 const tags = @import("tags.zig");
 const utils = @import("utils.zig");
+const sz = @import("stringzilla.zig");
 
 pub const TagIndex = tags.TagIndex;
 pub const TagValue = tags.TagValue;
@@ -147,7 +148,7 @@ pub const Event = struct {
     }
 
     fn computeId(self: *const Event) ![32]u8 {
-        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+        var hasher = sz.Sha256.init();
         hasher.update("[0,\"");
 
         var pubkey_hex: [64]u8 = undefined;
