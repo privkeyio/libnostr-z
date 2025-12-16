@@ -1,6 +1,11 @@
+//! NIP-46 Nostr Remote Signing protocol types.
+//!
+//! Zero-allocation parsing returns slices into the original JSON.
+
 const std = @import("std");
 const utils = @import("utils.zig");
 const hex = @import("hex.zig");
+const crypto = @import("crypto.zig");
 
 pub const Kind = struct {
     pub const request: i32 = 24133;
@@ -543,6 +548,50 @@ fn percentEncode(writer: anytype, input: []const u8) !void {
     }
 }
 
+pub fn encryptRequest(
+    request: *const Request,
+    secret_key: *const [32]u8,
+    remote_pubkey: *const [32]u8,
+    allocator: std.mem.Allocator,
+) ![]u8 {
+    const buf = try allocator.alloc(u8, 65536);
+    defer allocator.free(buf);
+    const json = try request.serialize(buf);
+    return crypto.nip44Encrypt(secret_key, remote_pubkey, json, allocator);
+}
+
+pub fn decryptRequest(
+    encrypted: []const u8,
+    secret_key: *const [32]u8,
+    sender_pubkey: *const [32]u8,
+    allocator: std.mem.Allocator,
+) !struct { json: []u8, request: ?Request } {
+    const json = try crypto.nip44Decrypt(secret_key, sender_pubkey, encrypted, allocator);
+    return .{ .json = json, .request = Request.parseJson(json) };
+}
+
+pub fn encryptResponse(
+    response: *const Response,
+    secret_key: *const [32]u8,
+    client_pubkey: *const [32]u8,
+    allocator: std.mem.Allocator,
+) ![]u8 {
+    const buf = try allocator.alloc(u8, 65536);
+    defer allocator.free(buf);
+    const json = try response.serialize(buf);
+    return crypto.nip44Encrypt(secret_key, client_pubkey, json, allocator);
+}
+
+pub fn decryptResponse(
+    encrypted: []const u8,
+    secret_key: *const [32]u8,
+    signer_pubkey: *const [32]u8,
+    allocator: std.mem.Allocator,
+) !struct { json: []u8, response: ?Response } {
+    const json = try crypto.nip44Decrypt(secret_key, signer_pubkey, encrypted, allocator);
+    return .{ .json = json, .response = Response.parseJson(json) };
+}
+
 test "Method roundtrip" {
     inline for (std.meta.fields(Method)) |field| {
         const method: Method = @enumFromInt(field.value);
@@ -883,4 +932,65 @@ test "Request sign_event roundtrip" {
     const serialized = try parsed.serialize(&buf);
 
     try std.testing.expectEqualStrings(original_json, serialized);
+}
+
+test "nip44 encrypt/decrypt request roundtrip" {
+    const allocator = std.testing.allocator;
+
+    var sk1: [32]u8 = undefined;
+    var sk2: [32]u8 = undefined;
+    @memset(&sk1, 0);
+    @memset(&sk2, 0);
+    sk1[31] = 1;
+    sk2[31] = 2;
+
+    var pk1: [32]u8 = undefined;
+    var pk2: [32]u8 = undefined;
+    try crypto.getPublicKey(&sk1, &pk1);
+    try crypto.getPublicKey(&sk2, &pk2);
+
+    const req = Request{
+        .id = "test123",
+        .method = .ping,
+        .params = .{ .ping = {} },
+    };
+
+    const encrypted = try encryptRequest(&req, &sk1, &pk2, allocator);
+    defer allocator.free(encrypted);
+
+    const result = try decryptRequest(encrypted, &sk2, &pk1, allocator);
+    defer allocator.free(result.json);
+
+    try std.testing.expectEqualStrings("test123", result.request.?.id);
+    try std.testing.expectEqual(Method.ping, result.request.?.method);
+}
+
+test "nip44 encrypt/decrypt response roundtrip" {
+    const allocator = std.testing.allocator;
+
+    var sk1: [32]u8 = undefined;
+    var sk2: [32]u8 = undefined;
+    @memset(&sk1, 0);
+    @memset(&sk2, 0);
+    sk1[31] = 1;
+    sk2[31] = 2;
+
+    var pk1: [32]u8 = undefined;
+    var pk2: [32]u8 = undefined;
+    try crypto.getPublicKey(&sk1, &pk1);
+    try crypto.getPublicKey(&sk2, &pk2);
+
+    const resp = Response{
+        .id = "resp123",
+        .result = "pong",
+    };
+
+    const encrypted = try encryptResponse(&resp, &sk2, &pk1, allocator);
+    defer allocator.free(encrypted);
+
+    const result = try decryptResponse(encrypted, &sk1, &pk2, allocator);
+    defer allocator.free(result.json);
+
+    try std.testing.expectEqualStrings("resp123", result.response.?.id);
+    try std.testing.expectEqualStrings("pong", result.response.?.result.?);
 }

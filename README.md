@@ -15,7 +15,9 @@ A Zig library for the Nostr protocol.
 | [19](https://github.com/nostr-protocol/nips/blob/master/19.md) | bech32 Entities | npub, nsec, nprofile, nevent, naddr |
 | [40](https://github.com/nostr-protocol/nips/blob/master/40.md) | Expiration Timestamp | `isExpired` |
 | [42](https://github.com/nostr-protocol/nips/blob/master/42.md) | Authentication | `Auth` utilities, AUTH message |
+| [44](https://github.com/nostr-protocol/nips/blob/master/44.md) | Encrypted Payloads | `crypto.nip44Encrypt`, `crypto.nip44Decrypt` |
 | [45](https://github.com/nostr-protocol/nips/blob/master/45.md) | Event Counts | COUNT message |
+| [46](https://github.com/nostr-protocol/nips/blob/master/46.md) | Remote Signing | `nip46` module |
 | [47](https://github.com/nostr-protocol/nips/blob/master/47.md) | Wallet Connect | `nwc` module |
 | [50](https://github.com/nostr-protocol/nips/blob/master/50.md) | Search | Filter `search` field |
 | [63](https://github.com/nostr-protocol/nips/blob/master/63.md) | Index Keys | `IndexKeys` utilities |

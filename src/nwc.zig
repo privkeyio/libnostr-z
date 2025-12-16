@@ -6,6 +6,7 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 const hex = @import("hex.zig");
+const crypto = @import("crypto.zig");
 
 pub const Kind = struct {
     pub const info: i32 = 13194;
@@ -965,6 +966,72 @@ fn percentEncode(writer: anytype, input: []const u8) !void {
     }
 }
 
+pub fn encryptRequest(
+    request: *const Request,
+    secret_key: *const [32]u8,
+    wallet_pubkey: *const [32]u8,
+    allocator: std.mem.Allocator,
+) ![]u8 {
+    const buf = try allocator.alloc(u8, 65536);
+    defer allocator.free(buf);
+    const json = try request.serialize(buf);
+    return crypto.nip44Encrypt(secret_key, wallet_pubkey, json, allocator);
+}
+
+pub fn decryptRequest(
+    encrypted: []const u8,
+    secret_key: *const [32]u8,
+    client_pubkey: *const [32]u8,
+    allocator: std.mem.Allocator,
+) !struct { json: []u8, request: ?Request } {
+    const json = try crypto.nip44Decrypt(secret_key, client_pubkey, encrypted, allocator);
+    return .{ .json = json, .request = Request.parseJson(json) };
+}
+
+pub fn encryptResponse(
+    response: *const Response,
+    secret_key: *const [32]u8,
+    client_pubkey: *const [32]u8,
+    allocator: std.mem.Allocator,
+) ![]u8 {
+    const buf = try allocator.alloc(u8, 65536);
+    defer allocator.free(buf);
+    const json = try response.serialize(buf);
+    return crypto.nip44Encrypt(secret_key, client_pubkey, json, allocator);
+}
+
+pub fn decryptResponse(
+    encrypted: []const u8,
+    secret_key: *const [32]u8,
+    wallet_pubkey: *const [32]u8,
+    allocator: std.mem.Allocator,
+) !struct { json: []u8, response: ?Response } {
+    const json = try crypto.nip44Decrypt(secret_key, wallet_pubkey, encrypted, allocator);
+    return .{ .json = json, .response = Response.parseJson(json) };
+}
+
+pub fn encryptNotification(
+    notification: *const Notification,
+    secret_key: *const [32]u8,
+    client_pubkey: *const [32]u8,
+    allocator: std.mem.Allocator,
+) ![]u8 {
+    const buf = try allocator.alloc(u8, 65536);
+    defer allocator.free(buf);
+    const json = try notification.serialize(buf);
+    return crypto.nip44Encrypt(secret_key, client_pubkey, json, allocator);
+}
+
+pub fn decryptNotification(
+    encrypted: []const u8,
+    secret_key: *const [32]u8,
+    wallet_pubkey: *const [32]u8,
+    allocator: std.mem.Allocator,
+) !struct { json: []u8, notification: ?Notification } {
+    const json = try crypto.nip44Decrypt(secret_key, wallet_pubkey, encrypted, allocator);
+    return .{ .json = json, .notification = Notification.parseJson(json) };
+}
+
 test "ConnectionUri.parse" {
     const uri = "nostr+walletconnect://b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4?relay=wss%3A%2F%2Frelay.damus.io&secret=71a8c14c1407c113601079c4302dab36460f0ccd0ad506f1f2dc73b5100e4f3c";
 
@@ -1169,4 +1236,63 @@ test "Request.parseJson list_transactions" {
     try std.testing.expectEqual(@as(?u32, 10), req.params.list_transactions.limit);
     try std.testing.expectEqual(@as(?bool, true), req.params.list_transactions.unpaid);
     try std.testing.expectEqual(TransactionType.incoming, req.params.list_transactions.tx_type.?);
+}
+
+test "nip44 encrypt/decrypt request roundtrip" {
+    const allocator = std.testing.allocator;
+
+    var sk1: [32]u8 = undefined;
+    var sk2: [32]u8 = undefined;
+    @memset(&sk1, 0);
+    @memset(&sk2, 0);
+    sk1[31] = 1;
+    sk2[31] = 2;
+
+    var pk1: [32]u8 = undefined;
+    var pk2: [32]u8 = undefined;
+    try crypto.getPublicKey(&sk1, &pk1);
+    try crypto.getPublicKey(&sk2, &pk2);
+
+    const req = Request{
+        .method = .get_balance,
+        .params = .{ .get_balance = {} },
+    };
+
+    const encrypted = try encryptRequest(&req, &sk1, &pk2, allocator);
+    defer allocator.free(encrypted);
+
+    const result = try decryptRequest(encrypted, &sk2, &pk1, allocator);
+    defer allocator.free(result.json);
+
+    try std.testing.expectEqual(Method.get_balance, result.request.?.method);
+}
+
+test "nip44 encrypt/decrypt response roundtrip" {
+    const allocator = std.testing.allocator;
+
+    var sk1: [32]u8 = undefined;
+    var sk2: [32]u8 = undefined;
+    @memset(&sk1, 0);
+    @memset(&sk2, 0);
+    sk1[31] = 1;
+    sk2[31] = 2;
+
+    var pk1: [32]u8 = undefined;
+    var pk2: [32]u8 = undefined;
+    try crypto.getPublicKey(&sk1, &pk1);
+    try crypto.getPublicKey(&sk2, &pk2);
+
+    const resp = Response{
+        .result_type = .get_balance,
+        .result = .{ .get_balance = .{ .balance = 50000 } },
+    };
+
+    const encrypted = try encryptResponse(&resp, &sk2, &pk1, allocator);
+    defer allocator.free(encrypted);
+
+    const result = try decryptResponse(encrypted, &sk1, &pk2, allocator);
+    defer allocator.free(result.json);
+
+    try std.testing.expectEqual(Method.get_balance, result.response.?.result_type);
+    try std.testing.expectEqual(@as(u64, 50000), result.response.?.result.?.get_balance.balance);
 }
