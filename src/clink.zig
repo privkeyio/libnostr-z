@@ -4,6 +4,7 @@
 //! codes for CLINK Debits (Kind 21002) and CLINK Manage (Kind 21003).
 
 const std = @import("std");
+const utils = @import("utils.zig");
 
 pub const Kind = struct {
     pub const offers: i32 = 21001;
@@ -101,7 +102,7 @@ pub const OffersError = struct {
         const writer = fbs.writer();
 
         try writer.writeAll("{\"error\":\"");
-        try writer.writeAll(self.error_msg);
+        try utils.writeJsonEscaped(writer, self.error_msg);
         try writer.print("\",\"code\":{d}", .{self.code.toInt()});
 
         if (self.range) |r| {
@@ -110,7 +111,7 @@ pub const OffersError = struct {
 
         if (self.latest) |l| {
             try writer.writeAll(",\"latest\":\"");
-            try writer.writeAll(l);
+            try utils.writeJsonEscaped(writer, l);
             try writer.writeByte('"');
         }
 
@@ -132,7 +133,7 @@ pub const GfyError = struct {
         const writer = fbs.writer();
 
         try writer.print("{{\"res\":\"GFY\",\"code\":{d},\"error\":\"", .{self.code.toInt()});
-        try writer.writeAll(self.error_msg);
+        try utils.writeJsonEscaped(writer, self.error_msg);
         try writer.writeByte('"');
 
         if (self.delta) |d| {
@@ -145,7 +146,7 @@ pub const GfyError = struct {
 
         if (self.field) |f| {
             try writer.writeAll(",\"field\":\"");
-            try writer.writeAll(f);
+            try utils.writeJsonEscaped(writer, f);
             try writer.writeByte('"');
         }
 
@@ -186,6 +187,13 @@ test "OffersError format" {
     const result1 = try err1.format(&buf);
     try std.testing.expectEqualStrings("{\"error\":\"Invalid Offer\",\"code\":1}", result1);
 
+    const err_escaped = OffersError{
+        .code = .temporary_failure,
+        .error_msg = "Error with \"quotes\" and \\backslash",
+    };
+    const result_escaped = try err_escaped.format(&buf);
+    try std.testing.expectEqualStrings("{\"error\":\"Error with \\\"quotes\\\" and \\\\backslash\",\"code\":2}", result_escaped);
+
     const err2 = OffersError{
         .code = .invalid_amount,
         .error_msg = "Invalid Amount",
@@ -212,6 +220,14 @@ test "GfyError format" {
     };
     const result1 = try err1.format(&buf);
     try std.testing.expectEqualStrings("{\"res\":\"GFY\",\"code\":1,\"error\":\"Request Denied\"}", result1);
+
+    const err_escaped = GfyError{
+        .code = .invalid_request,
+        .error_msg = "Bad field: \"name\"\nline2",
+        .field = "path\\to\\file",
+    };
+    const result_escaped = try err_escaped.format(&buf);
+    try std.testing.expectEqualStrings("{\"res\":\"GFY\",\"code\":6,\"error\":\"Bad field: \\\"name\\\"\\nline2\",\"field\":\"path\\\\to\\\\file\"}", result_escaped);
 
     const err2 = GfyError{
         .code = .expired_request,
