@@ -73,42 +73,12 @@ pub const Event = struct {
     }
 
     pub fn parseWithAllocator(json: []const u8, allocator: std.mem.Allocator) Error!Event {
-        const parsed = std.json.parseFromSlice(std.json.Value, allocator, json, .{}) catch return error.InvalidJson;
-        defer parsed.deinit();
-
-        const root = switch (parsed.value) {
-            .object => |obj| obj,
-            else => return error.InvalidJson,
-        };
-
-        const id_hex = (root.get("id") orelse return error.MissingField).string;
-        const pubkey_hex = (root.get("pubkey") orelse return error.MissingField).string;
-        const sig_hex = (root.get("sig") orelse return error.MissingField).string;
-        const created_at_val = root.get("created_at") orelse return error.MissingField;
-        const kind_val = root.get("kind") orelse return error.MissingField;
-        _ = (root.get("content") orelse return error.MissingField).string;
-
-        const created_at: i64 = switch (created_at_val) {
-            .integer => |i| i,
-            else => return error.InvalidCreatedAt,
-        };
-
-        const kind_num: i32 = switch (kind_val) {
-            .integer => |i| @intCast(i),
-            else => return error.InvalidKind,
-        };
-
-        var id_bytes: [32]u8 = undefined;
-        var pubkey_bytes: [32]u8 = undefined;
-        var sig_bytes: [64]u8 = undefined;
-
-        if (id_hex.len != 64) return error.InvalidId;
-        if (pubkey_hex.len != 64) return error.InvalidPubkey;
-        if (sig_hex.len != 128) return error.InvalidSig;
-
-        _ = std.fmt.hexToBytes(&id_bytes, id_hex) catch return error.InvalidId;
-        _ = std.fmt.hexToBytes(&pubkey_bytes, pubkey_hex) catch return error.InvalidPubkey;
-        _ = std.fmt.hexToBytes(&sig_bytes, sig_hex) catch return error.InvalidSig;
+        const id_bytes = utils.extractHexField(json, "id", 32) orelse return error.InvalidId;
+        const pubkey_bytes = utils.extractHexField(json, "pubkey", 32) orelse return error.InvalidPubkey;
+        const sig_bytes = utils.extractHexField(json, "sig", 64) orelse return error.InvalidSig;
+        const created_at = utils.extractIntField(json, "created_at", i64) orelse return error.InvalidCreatedAt;
+        const kind_num = utils.extractIntField(json, "kind", i32) orelse return error.InvalidKind;
+        if (utils.findJsonFieldStart(json, "content") == null) return error.MissingField;
 
         var event = Event{
             .id_bytes = id_bytes,
@@ -122,49 +92,44 @@ pub const Event = struct {
             .tags = TagIndex.init(allocator),
         };
 
-        if (root.get("tags")) |tags_val| {
-            if (tags_val == .array) {
-                event.tag_count = @intCast(tags_val.array.items.len);
-                for (tags_val.array.items) |tag| {
-                    if (tag != .array) continue;
-                    if (tag.array.items.len == 1) {
-                        if (tag.array.items[0] == .string and std.mem.eql(u8, tag.array.items[0].string, "-")) {
-                            event.protected_val = true;
-                        }
-                        continue;
-                    }
-                    if (tag.array.items.len < 2) continue;
+        event.tag_count = utils.TagIterator.count(json, "tags");
+        var iter = utils.TagIterator.init(json, "tags");
+        while (iter) |*it| {
+            const tag = it.next() orelse {
+                iter = null;
+                break;
+            };
 
-                    const tag_name = if (tag.array.items[0] == .string) tag.array.items[0].string else continue;
-                    const tag_value_str = if (tag.array.items[1] == .string) tag.array.items[1].string else continue;
+            if (tag.name.len == 1 and tag.name[0] == '-' and tag.value.len == 0) {
+                event.protected_val = true;
+                continue;
+            }
 
-                    if (std.mem.eql(u8, tag_name, "d")) {
-                        event.d_tag_val = utils.findStringInJson(json, tag_value_str);
-                    } else if (std.mem.eql(u8, tag_name, "expiration")) {
-                        event.expiration_val = std.fmt.parseInt(i64, tag_value_str, 10) catch null;
-                    }
+            if (std.mem.eql(u8, tag.name, "d")) {
+                event.d_tag_val = utils.findStringInJson(json, tag.value);
+            } else if (std.mem.eql(u8, tag.name, "expiration")) {
+                event.expiration_val = std.fmt.parseInt(i64, tag.value, 10) catch null;
+            }
 
-                    if (tag_name.len == 1) {
-                        const letter = tag_name[0];
+            if (tag.name.len == 1) {
+                const letter = tag.name[0];
 
-                        if (letter == 'e' or letter == 'p' or letter == 'E' or letter == 'P') {
-                            if (tag_value_str.len == 64) {
-                                var bytes: [32]u8 = undefined;
-                                if (std.fmt.hexToBytes(&bytes, tag_value_str)) |_| {
-                                    event.tags.append(letter, .{ .binary = bytes }) catch {};
-                                    if (letter == 'e' or letter == 'E') {
-                                        event.e_tags.append(allocator, bytes) catch {};
-                                    }
-                                } else |_| {}
+                if (letter == 'e' or letter == 'p' or letter == 'E' or letter == 'P') {
+                    if (tag.value.len == 64) {
+                        var bytes: [32]u8 = undefined;
+                        if (std.fmt.hexToBytes(&bytes, tag.value)) |_| {
+                            event.tags.append(letter, .{ .binary = bytes }) catch {};
+                            if (letter == 'e' or letter == 'E') {
+                                event.e_tags.append(allocator, bytes) catch {};
                             }
-                        } else {
-                            if (tag_value_str.len > 0 and tag_value_str.len <= 256) {
-                                const duped = allocator.dupe(u8, tag_value_str) catch continue;
-                                event.tags.append(letter, .{ .string = duped }) catch {
-                                    allocator.free(duped);
-                                };
-                            }
-                        }
+                        } else |_| {}
+                    }
+                } else {
+                    if (tag.value.len > 0 and tag.value.len <= 256) {
+                        const duped = allocator.dupe(u8, tag.value) catch continue;
+                        event.tags.append(letter, .{ .string = duped }) catch {
+                            allocator.free(duped);
+                        };
                     }
                 }
             }
