@@ -16,6 +16,7 @@ A Zig library for the Nostr protocol.
 | [40](https://github.com/nostr-protocol/nips/blob/master/40.md) | Expiration Timestamp | `isExpired` |
 | [42](https://github.com/nostr-protocol/nips/blob/master/42.md) | Authentication | `Auth` utilities, AUTH message |
 | [45](https://github.com/nostr-protocol/nips/blob/master/45.md) | Event Counts | COUNT message |
+| [47](https://github.com/nostr-protocol/nips/blob/master/47.md) | Wallet Connect | `nwc` module |
 | [50](https://github.com/nostr-protocol/nips/blob/master/50.md) | Search | Filter `search` field |
 | [63](https://github.com/nostr-protocol/nips/blob/master/63.md) | Index Keys | `IndexKeys` utilities |
 | [65](https://github.com/nostr-protocol/nips/blob/master/65.md) | Relay List Metadata | `relay_metadata` module |
