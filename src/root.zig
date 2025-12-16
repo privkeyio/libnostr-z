@@ -16,12 +16,14 @@
 //! - `crypto.zig` - Cryptographic operations
 //! - `negentropy.zig` - NIP-77 negentropy protocol
 //! - `pow.zig` - NIP-13 Proof of Work
+//! - `nwc.zig` - NIP-47 Nostr Wallet Connect
 
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
 pub const bech32 = @import("bech32.zig");
 pub const relay_metadata = @import("relay_metadata.zig");
 pub const pow = @import("pow.zig");
+pub const nwc = @import("nwc.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -87,4 +89,5 @@ test {
     _ = @import("stringzilla.zig");
     _ = @import("utils.zig");
     _ = @import("hex.zig");
+    _ = @import("nwc.zig");
 }
