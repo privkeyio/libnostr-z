@@ -1,11 +1,15 @@
 .{
     .name = .nostr,
-    .version = "0.1.4",
+    .version = "0.1.5",
     .fingerprint = 0x208aa38f708e8e25,
     .dependencies = .{
         .noscrypt = .{
             .url = "https://github.com/privkeyio/noscrypt/archive/6f9ce44.tar.gz",
             .hash = "noscrypt-0.1.9-q33-Y_9w5wDS6fAVp_8IQAg8aiZkYMe07TT4i1sBks7L",
+        },
+        .stringzilla = .{
+            .url = "https://github.com/ashvardanian/StringZilla/archive/refs/tags/v4.5.0.tar.gz",
+            .hash = "122095a5b66065c52157f3eed32776db7bcc3b287aca16a0ad8b3b91e6fe9bfba40f",
         },
     },
     .paths = .{
