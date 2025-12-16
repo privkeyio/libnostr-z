@@ -69,6 +69,7 @@ pub const cleanup = event_mod.cleanup;
 
 pub const stringzilla = @import("stringzilla.zig");
 pub const utils = @import("utils.zig");
+pub const hex = @import("hex.zig");
 
 test {
     _ = @import("tags.zig");
@@ -85,4 +86,5 @@ test {
     _ = @import("negentropy.zig");
     _ = @import("stringzilla.zig");
     _ = @import("utils.zig");
+    _ = @import("hex.zig");
 }

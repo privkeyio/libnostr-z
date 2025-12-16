@@ -1,4 +1,5 @@
 const std = @import("std");
+const hex = @import("hex.zig");
 
 pub fn writeJsonEscaped(writer: anytype, str: []const u8) !void {
     for (str) |c| {
@@ -264,7 +265,7 @@ pub fn extractHexField(json: []const u8, key: []const u8, comptime len: usize) ?
     if (hex_start + hex_len > json.len) return null;
     const hex_str = json[hex_start .. hex_start + hex_len];
     var result: [len]u8 = undefined;
-    _ = std.fmt.hexToBytes(&result, hex_str) catch return null;
+    hex.decode(hex_str, &result) catch return null;
     return result;
 }
 

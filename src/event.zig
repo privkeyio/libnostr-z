@@ -3,6 +3,7 @@ pub const crypto = @import("crypto.zig");
 const tags = @import("tags.zig");
 const utils = @import("utils.zig");
 const sz = @import("stringzilla.zig");
+const hex = @import("hex.zig");
 
 pub const TagIndex = tags.TagIndex;
 pub const TagValue = tags.TagValue;
@@ -152,9 +153,7 @@ pub const Event = struct {
         hasher.update("[0,\"");
 
         var pubkey_hex: [64]u8 = undefined;
-        for (&self.pubkey_bytes, 0..) |b, i| {
-            _ = std.fmt.bufPrint(pubkey_hex[i * 2 ..][0..2], "{x:0>2}", .{b}) catch unreachable;
-        }
+        hex.encode(&self.pubkey_bytes, &pubkey_hex);
         hasher.update(&pubkey_hex);
 
         hasher.update("\",");
@@ -209,16 +208,12 @@ pub const Event = struct {
     }
 
     pub fn idHex(self: *const Event, buf: *[65]u8) void {
-        for (&self.id_bytes, 0..) |b, i| {
-            _ = std.fmt.bufPrint(buf[i * 2 ..][0..2], "{x:0>2}", .{b}) catch {};
-        }
+        hex.encode(&self.id_bytes, buf[0..64]);
         buf[64] = 0;
     }
 
     pub fn pubkeyHex(self: *const Event, buf: *[65]u8) void {
-        for (&self.pubkey_bytes, 0..) |b, i| {
-            _ = std.fmt.bufPrint(buf[i * 2 ..][0..2], "{x:0>2}", .{b}) catch {};
-        }
+        hex.encode(&self.pubkey_bytes, buf[0..64]);
         buf[64] = 0;
     }
 
