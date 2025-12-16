@@ -263,3 +263,24 @@ pub fn searchMatches(query: []const u8, content: []const u8) bool {
     }
     return true;
 }
+
+test "containsInsensitive basic" {
+    try std.testing.expect(containsInsensitive("Hello World", "hello"));
+    try std.testing.expect(containsInsensitive("Hello World", "WORLD"));
+    try std.testing.expect(containsInsensitive("Hello World", "lo Wo"));
+    try std.testing.expect(!containsInsensitive("Hello World", "xyz"));
+    try std.testing.expect(containsInsensitive("", ""));
+    try std.testing.expect(!containsInsensitive("short", "longer needle"));
+}
+
+test "containsInsensitive utf8" {
+    try std.testing.expect(containsInsensitive("Café au lait", "café"));
+    try std.testing.expect(containsInsensitive("NOSTR IS GREAT", "nostr"));
+    try std.testing.expect(containsInsensitive("Bitcoin Nostr Lightning", "NOSTR"));
+}
+
+test "searchMatches" {
+    try std.testing.expect(searchMatches("hello world", "Hello World Today"));
+    try std.testing.expect(!searchMatches("hello xyz", "Hello World Today"));
+    try std.testing.expect(searchMatches("bitcoin nostr", "I love Bitcoin and Nostr!"));
+}

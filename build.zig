@@ -9,6 +9,28 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const stringzilla = b.dependency("stringzilla", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const sz_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    sz_mod.addCSourceFile(.{
+        .file = b.path("src/sz_wrapper.c"),
+        .flags = &.{ "-std=c99", "-O3" },
+    });
+    sz_mod.addIncludePath(stringzilla.path("include"));
+
+    const sz_lib = b.addLibrary(.{
+        .name = "sz_wrapper",
+        .root_module = sz_mod,
+        .linkage = .static,
+    });
+
     const nostr_mod = b.addModule("nostr", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -16,6 +38,7 @@ pub fn build(b: *std.Build) void {
     });
 
     nostr_mod.linkLibrary(noscrypt.artifact("noscrypt"));
+    nostr_mod.linkLibrary(sz_lib);
     nostr_mod.addIncludePath(noscrypt.path("include"));
 
     const tests = b.addTest(.{
@@ -26,6 +49,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     tests.linkLibrary(noscrypt.artifact("noscrypt"));
+    tests.linkLibrary(sz_lib);
     tests.root_module.addIncludePath(noscrypt.path("include"));
     tests.linkLibC();
 

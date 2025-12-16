@@ -67,6 +67,9 @@ pub const IndexKeys = index_keys_mod.IndexKeys;
 pub const init = event_mod.init;
 pub const cleanup = event_mod.cleanup;
 
+pub const stringzilla = @import("stringzilla.zig");
+pub const utils = @import("utils.zig");
+
 test {
     _ = @import("tags.zig");
     _ = @import("event.zig");
@@ -80,4 +83,6 @@ test {
     _ = @import("relay_metadata.zig");
     _ = @import("pow.zig");
     _ = @import("negentropy.zig");
+    _ = @import("stringzilla.zig");
+    _ = @import("utils.zig");
 }
