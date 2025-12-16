@@ -30,6 +30,7 @@ pub const nwc = @import("nwc.zig");
 pub const nip46 = @import("nip46.zig");
 pub const clink = @import("clink.zig");
 pub const joinstr = @import("joinstr.zig");
+pub const ws = @import("ws/ws.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -100,4 +101,5 @@ test {
     _ = @import("nip46.zig");
     _ = @import("clink.zig");
     _ = @import("joinstr.zig");
+    _ = @import("ws/ws.zig");
 }
