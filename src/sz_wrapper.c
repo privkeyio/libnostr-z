@@ -4,6 +4,7 @@
 #define SZ_USE_SKYLAKE 0
 #define SZ_USE_ICE 0
 #define SZ_USE_WESTMERE 0
+#define SZ_USE_GOLDMONT 0
 #define SZ_USE_NEON 0
 #define SZ_USE_SVE 0
 #define SZ_USE_SVE2 0
@@ -12,7 +13,20 @@
 #define SZ_USE_ARM_NEON 0
 #define SZ_USE_ARM_SVE 0
 #include "stringzilla/find.h"
+#include "stringzilla/hash.h"
 
 const char* sz_find_wrapper(const char* haystack, size_t h_len, const char* needle, size_t n_len) {
     return sz_find_serial(haystack, h_len, needle, n_len);
+}
+
+void sz_sha256_init_wrapper(sz_sha256_state_t* state) {
+    sz_sha256_state_init_serial(state);
+}
+
+void sz_sha256_update_wrapper(sz_sha256_state_t* state, const char* data, size_t length) {
+    sz_sha256_state_update_serial(state, data, length);
+}
+
+void sz_sha256_digest_wrapper(const sz_sha256_state_t* state, unsigned char* digest) {
+    sz_sha256_state_digest_serial(state, digest);
 }
