@@ -286,3 +286,94 @@ test "event builder - mine with existing tags" {
     defer event.deinit();
     try event.validate();
 }
+
+test "event builder serialize outputs valid json structure" {
+    const event_mod = @import("event.zig");
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const keypair = Keypair.generate();
+    var builder = EventBuilder{};
+    _ = builder.setKind(30023).setContent("long form content").setCreatedAt(1700000000);
+    try builder.sign(&keypair);
+
+    var buf: [8192]u8 = undefined;
+    const json = try builder.serialize(&buf);
+
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"id\":\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"pubkey\":\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"sig\":\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"kind\":30023") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"created_at\":1700000000") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"content\":\"long form content\"") != null);
+}
+
+test "event builder with multiple tags" {
+    const event_mod = @import("event.zig");
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const keypair = Keypair.generate();
+    var builder = EventBuilder{};
+    const tags = [_][]const []const u8{
+        &[_][]const u8{ "e", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        &[_][]const u8{ "p", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+        &[_][]const u8{ "t", "nostr" },
+    };
+    _ = builder.setKind(1).setContent("reply").setTags(&tags);
+    try builder.sign(&keypair);
+
+    var buf: [8192]u8 = undefined;
+    const json = try builder.serialize(&buf);
+
+    try std.testing.expect(std.mem.indexOf(u8, json, "[\"e\",\"aaaa") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "[\"p\",\"bbbb") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "[\"t\",\"nostr\"]") != null);
+
+    var event = try event_mod.Event.parse(json);
+    defer event.deinit();
+    try event.validate();
+}
+
+test "event builder content escaping" {
+    const event_mod = @import("event.zig");
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const keypair = Keypair.generate();
+    var builder = EventBuilder{};
+    _ = builder.setKind(1).setContent("line1\nline2\twith\"quotes\"");
+    try builder.sign(&keypair);
+
+    var buf: [8192]u8 = undefined;
+    const json = try builder.serialize(&buf);
+
+    try std.testing.expect(std.mem.indexOf(u8, json, "\\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\\t") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\\\"quotes\\\"") != null);
+
+    var event = try event_mod.Event.parse(json);
+    defer event.deinit();
+}
+
+test "Keypair.generate produces valid keys" {
+    const event_mod = @import("event.zig");
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const kp1 = Keypair.generate();
+    const kp2 = Keypair.generate();
+
+    try std.testing.expect(!std.mem.eql(u8, &kp1.secret_key, &kp2.secret_key));
+    try std.testing.expect(!std.mem.eql(u8, &kp1.public_key, &kp2.public_key));
+
+    var builder = EventBuilder{};
+    _ = builder.setKind(1).setContent("test");
+    try builder.sign(&kp1);
+
+    var buf: [4096]u8 = undefined;
+    const json = try builder.serialize(&buf);
+    var event = try event_mod.Event.parse(json);
+    defer event.deinit();
+    try event.validate();
+}

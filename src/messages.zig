@@ -806,3 +806,205 @@ test "RelayMsg.negErr formatting" {
         \\["NEG-ERR","sub1","blocked: query too large"]
     , result);
 }
+
+test "ClientMsg parses CLOSE" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["CLOSE","my-sub-id"]
+    ;
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    try std.testing.expectEqual(ClientMsgType.close, msg.msgType());
+    try std.testing.expectEqualStrings("my-sub-id", msg.subscriptionId());
+}
+
+test "ClientMsg parses AUTH" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["AUTH",{}]
+    ;
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    try std.testing.expectEqual(ClientMsgType.auth, msg.msgType());
+}
+
+test "ClientMsg parses COUNT" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["COUNT","count-sub",{"kinds":[1]}]
+    ;
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    try std.testing.expectEqual(ClientMsgType.count, msg.msgType());
+    try std.testing.expectEqualStrings("count-sub", msg.subscriptionId());
+}
+
+test "ClientMsg.closeMsg formatting" {
+    var buf: [128]u8 = undefined;
+    const result = try ClientMsg.closeMsg("my-subscription", &buf);
+    try std.testing.expectEqualStrings(
+        \\["CLOSE","my-subscription"]
+    , result);
+}
+
+test "RelayMsg.ok formatting" {
+    var buf: [256]u8 = undefined;
+    var event_id: [32]u8 = undefined;
+    @memset(&event_id, 0xab);
+    const result = try RelayMsg.ok(&event_id, true, "", &buf);
+    try std.testing.expect(std.mem.indexOf(u8, result, "[\"OK\",\"abababab") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, ",true,\"\"]") != null);
+}
+
+test "RelayMsg.ok with failure message" {
+    var buf: [256]u8 = undefined;
+    var event_id: [32]u8 = undefined;
+    @memset(&event_id, 0x00);
+    const result = try RelayMsg.ok(&event_id, false, "blocked: spam", &buf);
+    try std.testing.expect(std.mem.indexOf(u8, result, ",false,\"blocked: spam\"]") != null);
+}
+
+test "RelayMsg.eose formatting" {
+    var buf: [128]u8 = undefined;
+    const result = try RelayMsg.eose("sub123", &buf);
+    try std.testing.expectEqualStrings(
+        \\["EOSE","sub123"]
+    , result);
+}
+
+test "RelayMsg.closed formatting" {
+    var buf: [128]u8 = undefined;
+    const result = try RelayMsg.closed("sub123", "error: shutting down", &buf);
+    try std.testing.expectEqualStrings(
+        \\["CLOSED","sub123","error: shutting down"]
+    , result);
+}
+
+test "RelayMsg.notice formatting" {
+    var buf: [128]u8 = undefined;
+    const result = try RelayMsg.notice("rate limited", &buf);
+    try std.testing.expectEqualStrings(
+        \\["NOTICE","rate limited"]
+    , result);
+}
+
+test "RelayMsg.auth formatting" {
+    var buf: [256]u8 = undefined;
+    var challenge: [32]u8 = undefined;
+    @memset(&challenge, 0xde);
+    const result = try RelayMsg.auth(&challenge, &buf);
+    try std.testing.expect(std.mem.indexOf(u8, result, "[\"AUTH\",\"dededede") != null);
+}
+
+test "RelayMsg.count formatting" {
+    var buf: [128]u8 = undefined;
+    const result = try RelayMsg.count("count-sub", 42, &buf);
+    try std.testing.expectEqualStrings(
+        \\["COUNT","count-sub",{"count":42}]
+    , result);
+}
+
+test "RelayMsgParsed parses OK success" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["OK","abcd",true,""]
+    ;
+    const msg = try RelayMsgParsed.parse(json, allocator);
+    try std.testing.expectEqual(RelayMsgType.ok, msg.msg_type);
+    try std.testing.expect(msg.success);
+    try std.testing.expect(!msg.is_duplicate);
+}
+
+test "RelayMsgParsed parses OK failure with duplicate" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["OK","abcd",false,"duplicate: already have this event"]
+    ;
+    const msg = try RelayMsgParsed.parse(json, allocator);
+    try std.testing.expectEqual(RelayMsgType.ok, msg.msg_type);
+    try std.testing.expect(!msg.success);
+    try std.testing.expect(msg.is_duplicate);
+}
+
+test "RelayMsgParsed parses OK with rate-limit" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["OK","abcd",false,"rate-limited: slow down"]
+    ;
+    const msg = try RelayMsgParsed.parse(json, allocator);
+    try std.testing.expect(msg.is_rate_limited);
+}
+
+test "RelayMsgParsed parses COUNT" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["COUNT","sub1",{"count":999}]
+    ;
+    const msg = try RelayMsgParsed.parse(json, allocator);
+    try std.testing.expectEqual(RelayMsgType.count, msg.msg_type);
+    try std.testing.expectEqual(@as(?u64, 999), msg.count_val);
+}
+
+test "RelayMsgParsed parses EOSE" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["EOSE","sub1"]
+    ;
+    const msg = try RelayMsgParsed.parse(json, allocator);
+    try std.testing.expectEqual(RelayMsgType.eose, msg.msg_type);
+}
+
+test "RelayMsgParsed parses NOTICE" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["NOTICE","server message"]
+    ;
+    const msg = try RelayMsgParsed.parse(json, allocator);
+    try std.testing.expectEqual(RelayMsgType.notice, msg.msg_type);
+}
+
+test "RelayMsgParsed parses CLOSED" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["CLOSED","sub1","error: shutdown"]
+    ;
+    const msg = try RelayMsgParsed.parse(json, allocator);
+    try std.testing.expectEqual(RelayMsgType.closed, msg.msg_type);
+}
+
+test "RelayMsgParsed parses AUTH" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["AUTH","challenge-string"]
+    ;
+    const msg = try RelayMsgParsed.parse(json, allocator);
+    try std.testing.expectEqual(RelayMsgType.auth, msg.msg_type);
+}
+
+test "ClientMsg.getFilters parses multiple filters" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["REQ","sub1",{"kinds":[1],"limit":10},{"kinds":[7],"since":1700000000}]
+    ;
+
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    const filters = try msg.getFilters(allocator);
+    defer {
+        for (filters) |*f| {
+            var filter = f.*;
+            filter.deinit();
+        }
+        allocator.free(filters);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), filters.len);
+    try std.testing.expectEqual(@as(i32, 1), filters[0].kinds_slice.?[0]);
+    try std.testing.expectEqual(@as(i32, 10), filters[0].limit_val);
+    try std.testing.expectEqual(@as(i32, 7), filters[1].kinds_slice.?[0]);
+    try std.testing.expectEqual(@as(i64, 1700000000), filters[1].since_val);
+}
