@@ -97,6 +97,7 @@ pub const Accumulator = struct {
 };
 
 pub fn encodeVarInt(n: u64, out: []u8) usize {
+    if (out.len == 0) return 0;
     if (n == 0) {
         out[0] = 0;
         return 1;
@@ -108,6 +109,7 @@ pub fn encodeVarInt(n: u64, out: []u8) usize {
         temp[len] = @truncate(val & 0x7F);
         val >>= 7;
     }
+    if (len > out.len) return 0;
     for (0..len) |i| {
         const idx = len - 1 - i;
         out[i] = temp[idx] | (if (i < len - 1) @as(u8, 0x80) else 0);
@@ -239,6 +241,7 @@ pub const Negentropy = struct {
         self.is_initiator = true;
         self.last_timestamp_out = 0;
 
+        if (out.len == 0) return Error.BufferTooSmall;
         var pos: usize = 0;
         out[pos] = PROTOCOL_VERSION;
         pos += 1;
@@ -256,6 +259,7 @@ pub const Negentropy = struct {
         var have_ids: std.ArrayListUnmanaged([ID_SIZE]u8) = .{};
         var need_ids: std.ArrayListUnmanaged([ID_SIZE]u8) = .{};
 
+        if (out.len == 0) return Error.BufferTooSmall;
         var pos: usize = 0;
         out[pos] = PROTOCOL_VERSION;
         pos += 1;
@@ -302,6 +306,7 @@ pub const Negentropy = struct {
                         if (skip) {
                             const skip_len = self.encodeBound(skip_bound, out[pos..]) catch return Error.BufferTooSmall;
                             pos += skip_len;
+                            if (pos >= out.len) return Error.BufferTooSmall;
                             out[pos] = @intFromEnum(Mode.skip);
                             pos += 1;
                             skip = false;
@@ -348,6 +353,7 @@ pub const Negentropy = struct {
                         if (skip) {
                             const skip_len = self.encodeBound(skip_bound, out[pos..]) catch return Error.BufferTooSmall;
                             pos += skip_len;
+                            if (pos >= out.len) return Error.BufferTooSmall;
                             out[pos] = @intFromEnum(Mode.skip);
                             pos += 1;
                             skip = false;
@@ -360,11 +366,13 @@ pub const Negentropy = struct {
 
                         const bound_len = self.encodeBound(curr_bound, out[pos..]) catch return Error.BufferTooSmall;
                         pos += bound_len;
+                        if (pos >= out.len) return Error.BufferTooSmall;
                         out[pos] = @intFromEnum(Mode.id_list);
                         pos += 1;
 
                         const count = upper - lower;
                         const count_len = encodeVarInt(count, out[pos..]);
+                        if (count_len == 0 and count > 0) return Error.BufferTooSmall;
                         pos += count_len;
 
                         for (lower..upper) |i| {
@@ -397,6 +405,7 @@ pub const Negentropy = struct {
             out[pos] = @intFromEnum(Mode.id_list);
             pos += 1;
             const count_len = encodeVarInt(num_elems, out[pos..]);
+            if (count_len == 0 and num_elems > 0) return error.BufferTooSmall;
             pos += count_len;
 
             for (lower..upper) |i| {
@@ -437,10 +446,13 @@ pub const Negentropy = struct {
     fn encodeBound(self: *Negentropy, bound: Bound, out: []u8) !usize {
         var pos: usize = 0;
         const ts_len = self.encodeTimestampOut(bound.item.timestamp, out[pos..]);
+        if (ts_len == 0) return error.BufferTooSmall;
         pos += ts_len;
         const id_len_len = encodeVarInt(bound.id_len, out[pos..]);
+        if (id_len_len == 0 and bound.id_len > 0) return error.BufferTooSmall;
         pos += id_len_len;
         if (bound.id_len > 0) {
+            if (pos + bound.id_len > out.len) return error.BufferTooSmall;
             @memcpy(out[pos..][0..bound.id_len], bound.item.id[0..bound.id_len]);
             pos += bound.id_len;
         }
@@ -448,6 +460,7 @@ pub const Negentropy = struct {
     }
 
     fn encodeTimestampOut(self: *Negentropy, timestamp: u64, out: []u8) usize {
+        if (out.len == 0) return 0;
         if (timestamp == MAX_U64) {
             self.last_timestamp_out = MAX_U64;
             out[0] = 0;
