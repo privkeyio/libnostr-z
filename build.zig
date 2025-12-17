@@ -40,6 +40,8 @@ pub fn build(b: *std.Build) void {
     nostr_mod.linkLibrary(noscrypt.artifact("noscrypt"));
     nostr_mod.linkLibrary(sz_lib);
     nostr_mod.addIncludePath(noscrypt.path("include"));
+    nostr_mod.linkSystemLibrary("ssl", .{});
+    nostr_mod.linkSystemLibrary("crypto", .{});
 
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -51,6 +53,8 @@ pub fn build(b: *std.Build) void {
     tests.linkLibrary(noscrypt.artifact("noscrypt"));
     tests.linkLibrary(sz_lib);
     tests.root_module.addIncludePath(noscrypt.path("include"));
+    tests.root_module.linkSystemLibrary("ssl", .{});
+    tests.root_module.linkSystemLibrary("crypto", .{});
     tests.linkLibC();
 
     const run_tests = b.addRunArtifact(tests);
