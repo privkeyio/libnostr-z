@@ -77,10 +77,11 @@ pub const MessageQueue = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        const start_time: u64 = @intCast(std.time.nanoTimestamp());
+        const start_time = std.time.nanoTimestamp();
 
         while (self.messages.items.len == 0) {
-            const elapsed: u64 = @intCast(std.time.nanoTimestamp() - @as(i128, start_time));
+            const now = std.time.nanoTimestamp();
+            const elapsed: u64 = if (now > start_time) @intCast(now - start_time) else 0;
             if (elapsed >= timeout_ns) {
                 return null;
             }
