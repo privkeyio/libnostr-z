@@ -20,6 +20,7 @@
 //! - `nip46.zig` - NIP-46 Nostr Remote Signing
 //! - `clink.zig` - CLINK protocol types and error codes
 //! - `joinstr.zig` - NIP Joinstr (Kind 2022) coinjoin pools
+//! - `message_queue.zig` - Thread-safe message queue for multi-relay architecture
 
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
@@ -31,6 +32,7 @@ pub const nip46 = @import("nip46.zig");
 pub const clink = @import("clink.zig");
 pub const joinstr = @import("joinstr.zig");
 pub const ws = @import("ws/ws.zig");
+pub const message_queue = @import("message_queue.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -102,4 +104,5 @@ test {
     _ = @import("clink.zig");
     _ = @import("joinstr.zig");
     _ = @import("ws/ws.zig");
+    _ = @import("message_queue.zig");
 }
