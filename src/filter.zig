@@ -385,3 +385,193 @@ test "Filter with mixed-case tags matches correctly" {
     const filter_wrong_t = Filter{ .tag_filters = &wrong_t_filters };
     try std.testing.expect(!filter_wrong_t.matches(&event));
 }
+
+test "Filter.matches by kind" {
+    const event_module = @import("event.zig");
+    try event_module.init();
+    defer event_module.cleanup();
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[]}
+    ;
+
+    var event = try Event.parseWithAllocator(json, std.testing.allocator);
+    defer event.deinit();
+
+    var kinds_match = [_]i32{ 1, 7 };
+    const filter_match = Filter{ .kinds_slice = &kinds_match };
+    try std.testing.expect(filter_match.matches(&event));
+
+    var kinds_no_match = [_]i32{ 0, 7 };
+    const filter_no_match = Filter{ .kinds_slice = &kinds_no_match };
+    try std.testing.expect(!filter_no_match.matches(&event));
+}
+
+test "Filter.matches by since and until" {
+    const event_module = @import("event.zig");
+    try event_module.init();
+    defer event_module.cleanup();
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[]}
+    ;
+
+    var event = try Event.parseWithAllocator(json, std.testing.allocator);
+    defer event.deinit();
+
+    const filter_since_ok = Filter{ .since_val = 1699999999 };
+    try std.testing.expect(filter_since_ok.matches(&event));
+
+    const filter_since_exact = Filter{ .since_val = 1700000000 };
+    try std.testing.expect(filter_since_exact.matches(&event));
+
+    const filter_since_fail = Filter{ .since_val = 1700000001 };
+    try std.testing.expect(!filter_since_fail.matches(&event));
+
+    const filter_until_ok = Filter{ .until_val = 1700000001 };
+    try std.testing.expect(filter_until_ok.matches(&event));
+
+    const filter_until_exact = Filter{ .until_val = 1700000000 };
+    try std.testing.expect(filter_until_exact.matches(&event));
+
+    const filter_until_fail = Filter{ .until_val = 1699999999 };
+    try std.testing.expect(!filter_until_fail.matches(&event));
+}
+
+test "Filter.matches by id" {
+    const event_module = @import("event.zig");
+    try event_module.init();
+    defer event_module.cleanup();
+
+    const json =
+        \\{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[]}
+    ;
+
+    var event = try Event.parseWithAllocator(json, std.testing.allocator);
+    defer event.deinit();
+
+    var id_match: [32]u8 = undefined;
+    @memset(&id_match, 0xaa);
+    var ids_match = [_][32]u8{id_match};
+    const filter_match = Filter{ .ids_bytes = &ids_match };
+    try std.testing.expect(filter_match.matches(&event));
+
+    var id_no_match: [32]u8 = undefined;
+    @memset(&id_no_match, 0xbb);
+    var ids_no_match = [_][32]u8{id_no_match};
+    const filter_no_match = Filter{ .ids_bytes = &ids_no_match };
+    try std.testing.expect(!filter_no_match.matches(&event));
+}
+
+test "Filter.matches by author" {
+    const event_module = @import("event.zig");
+    try event_module.init();
+    defer event_module.cleanup();
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[]}
+    ;
+
+    var event = try Event.parseWithAllocator(json, std.testing.allocator);
+    defer event.deinit();
+
+    var author_match: [32]u8 = undefined;
+    @memset(&author_match, 0xcc);
+    var authors_match = [_][32]u8{author_match};
+    const filter_match = Filter{ .authors_bytes = &authors_match };
+    try std.testing.expect(filter_match.matches(&event));
+
+    var author_no_match: [32]u8 = undefined;
+    @memset(&author_no_match, 0xdd);
+    var authors_no_match = [_][32]u8{author_no_match};
+    const filter_no_match = Filter{ .authors_bytes = &authors_no_match };
+    try std.testing.expect(!filter_no_match.matches(&event));
+}
+
+test "Filter.serialize with kinds and limit" {
+    var kinds = [_]i32{ 1, 7, 30023 };
+    const filter = Filter{
+        .kinds_slice = &kinds,
+        .limit_val = 100,
+        .since_val = 1700000000,
+    };
+
+    var buf: [256]u8 = undefined;
+    const result = try filter.serialize(&buf);
+    try std.testing.expectEqualStrings("{\"kinds\":[1,7,30023],\"since\":1700000000,\"limit\":100}", result);
+}
+
+test "Filter.serialize with ids and authors" {
+    var id: [32]u8 = undefined;
+    @memset(&id, 0xaa);
+    var ids = [_][32]u8{id};
+
+    var author: [32]u8 = undefined;
+    @memset(&author, 0xbb);
+    var authors = [_][32]u8{author};
+
+    const filter = Filter{
+        .ids_bytes = &ids,
+        .authors_bytes = &authors,
+    };
+
+    var buf: [512]u8 = undefined;
+    const result = try filter.serialize(&buf);
+    try std.testing.expect(std.mem.indexOf(u8, result, "\"ids\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result, "\"authors\":[\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"]") != null);
+}
+
+test "Filter.clone creates independent copy" {
+    const allocator = std.testing.allocator;
+
+    var kinds = [_]i32{ 1, 7 };
+    var id: [32]u8 = undefined;
+    @memset(&id, 0xaa);
+    var ids = [_][32]u8{id};
+
+    const original = Filter{
+        .kinds_slice = &kinds,
+        .ids_bytes = &ids,
+        .since_val = 1700000000,
+        .limit_val = 50,
+    };
+
+    var cloned = try original.clone(allocator);
+    defer cloned.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), cloned.kinds_slice.?.len);
+    try std.testing.expectEqual(@as(i32, 1), cloned.kinds_slice.?[0]);
+    try std.testing.expectEqual(@as(i64, 1700000000), cloned.since_val);
+    try std.testing.expectEqual(@as(i32, 50), cloned.limit_val);
+
+    try std.testing.expect(cloned.kinds_slice.?.ptr != original.kinds_slice.?.ptr);
+    try std.testing.expect(cloned.ids_bytes.?.ptr != original.ids_bytes.?.ptr);
+}
+
+test "filtersMatch with multiple filters OR logic" {
+    const event_module = @import("event.zig");
+    try event_module.init();
+    defer event_module.cleanup();
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[]}
+    ;
+
+    var event = try Event.parseWithAllocator(json, std.testing.allocator);
+    defer event.deinit();
+
+    var kinds_no = [_]i32{7};
+    var kinds_yes = [_]i32{1};
+    const filters = [_]Filter{
+        .{ .kinds_slice = &kinds_no },
+        .{ .kinds_slice = &kinds_yes },
+    };
+
+    try std.testing.expect(filtersMatch(&filters, &event));
+
+    const filters_none = [_]Filter{
+        .{ .kinds_slice = &kinds_no },
+        .{ .since_val = 1800000000 },
+    };
+    try std.testing.expect(!filtersMatch(&filters_none, &event));
+}

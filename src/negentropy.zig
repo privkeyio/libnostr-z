@@ -97,6 +97,7 @@ pub const Accumulator = struct {
 };
 
 pub fn encodeVarInt(n: u64, out: []u8) usize {
+    if (out.len == 0) return 0;
     if (n == 0) {
         out[0] = 0;
         return 1;
@@ -108,6 +109,7 @@ pub fn encodeVarInt(n: u64, out: []u8) usize {
         temp[len] = @truncate(val & 0x7F);
         val >>= 7;
     }
+    if (len > out.len) return 0;
     for (0..len) |i| {
         const idx = len - 1 - i;
         out[i] = temp[idx] | (if (i < len - 1) @as(u8, 0x80) else 0);
@@ -239,6 +241,7 @@ pub const Negentropy = struct {
         self.is_initiator = true;
         self.last_timestamp_out = 0;
 
+        if (out.len == 0) return Error.BufferTooSmall;
         var pos: usize = 0;
         out[pos] = PROTOCOL_VERSION;
         pos += 1;
@@ -256,6 +259,7 @@ pub const Negentropy = struct {
         var have_ids: std.ArrayListUnmanaged([ID_SIZE]u8) = .{};
         var need_ids: std.ArrayListUnmanaged([ID_SIZE]u8) = .{};
 
+        if (out.len == 0) return Error.BufferTooSmall;
         var pos: usize = 0;
         out[pos] = PROTOCOL_VERSION;
         pos += 1;
@@ -302,6 +306,7 @@ pub const Negentropy = struct {
                         if (skip) {
                             const skip_len = self.encodeBound(skip_bound, out[pos..]) catch return Error.BufferTooSmall;
                             pos += skip_len;
+                            if (pos >= out.len) return Error.BufferTooSmall;
                             out[pos] = @intFromEnum(Mode.skip);
                             pos += 1;
                             skip = false;
@@ -348,6 +353,7 @@ pub const Negentropy = struct {
                         if (skip) {
                             const skip_len = self.encodeBound(skip_bound, out[pos..]) catch return Error.BufferTooSmall;
                             pos += skip_len;
+                            if (pos >= out.len) return Error.BufferTooSmall;
                             out[pos] = @intFromEnum(Mode.skip);
                             pos += 1;
                             skip = false;
@@ -360,11 +366,13 @@ pub const Negentropy = struct {
 
                         const bound_len = self.encodeBound(curr_bound, out[pos..]) catch return Error.BufferTooSmall;
                         pos += bound_len;
+                        if (pos >= out.len) return Error.BufferTooSmall;
                         out[pos] = @intFromEnum(Mode.id_list);
                         pos += 1;
 
                         const count = upper - lower;
                         const count_len = encodeVarInt(count, out[pos..]);
+                        if (count_len == 0) return Error.BufferTooSmall;
                         pos += count_len;
 
                         for (lower..upper) |i| {
@@ -397,6 +405,7 @@ pub const Negentropy = struct {
             out[pos] = @intFromEnum(Mode.id_list);
             pos += 1;
             const count_len = encodeVarInt(num_elems, out[pos..]);
+            if (count_len == 0) return error.BufferTooSmall;
             pos += count_len;
 
             for (lower..upper) |i| {
@@ -437,10 +446,13 @@ pub const Negentropy = struct {
     fn encodeBound(self: *Negentropy, bound: Bound, out: []u8) !usize {
         var pos: usize = 0;
         const ts_len = self.encodeTimestampOut(bound.item.timestamp, out[pos..]);
+        if (ts_len == 0) return error.BufferTooSmall;
         pos += ts_len;
         const id_len_len = encodeVarInt(bound.id_len, out[pos..]);
+        if (id_len_len == 0) return error.BufferTooSmall;
         pos += id_len_len;
         if (bound.id_len > 0) {
+            if (pos + bound.id_len > out.len) return error.BufferTooSmall;
             @memcpy(out[pos..][0..bound.id_len], bound.item.id[0..bound.id_len]);
             pos += bound.id_len;
         }
@@ -448,6 +460,7 @@ pub const Negentropy = struct {
     }
 
     fn encodeTimestampOut(self: *Negentropy, timestamp: u64, out: []u8) usize {
+        if (out.len == 0) return 0;
         if (timestamp == MAX_U64) {
             self.last_timestamp_out = MAX_U64;
             out[0] = 0;
@@ -589,4 +602,162 @@ test "basic reconciliation" {
     try std.testing.expectEqual(@as(usize, 1), client_result.need_ids.items.len);
     try std.testing.expect(std.mem.eql(u8, &client_result.have_ids.items[0], &client_only));
     try std.testing.expect(std.mem.eql(u8, &client_result.need_ids.items[0], &server_only));
+}
+
+test "Item ordering by timestamp" {
+    var id1: [ID_SIZE]u8 = undefined;
+    @memset(&id1, 0x01);
+    var id2: [ID_SIZE]u8 = undefined;
+    @memset(&id2, 0x02);
+
+    const item1 = Item.init(100, &id1);
+    const item2 = Item.init(200, &id2);
+
+    try std.testing.expectEqual(std.math.Order.lt, Item.order(item1, item2));
+    try std.testing.expectEqual(std.math.Order.gt, Item.order(item2, item1));
+    try std.testing.expect(Item.lessThan({}, item1, item2));
+}
+
+test "Item ordering by id when same timestamp" {
+    var id1: [ID_SIZE]u8 = undefined;
+    @memset(&id1, 0x01);
+    var id2: [ID_SIZE]u8 = undefined;
+    @memset(&id2, 0x02);
+
+    const item1 = Item.init(100, &id1);
+    const item2 = Item.init(100, &id2);
+
+    try std.testing.expectEqual(std.math.Order.lt, Item.order(item1, item2));
+    try std.testing.expectEqual(std.math.Order.gt, Item.order(item2, item1));
+}
+
+test "Item ordering equal" {
+    var id: [ID_SIZE]u8 = undefined;
+    @memset(&id, 0xAB);
+
+    const item1 = Item.init(100, &id);
+    const item2 = Item.init(100, &id);
+
+    try std.testing.expectEqual(std.math.Order.eq, Item.order(item1, item2));
+}
+
+test "varint encoding large numbers" {
+    var buf: [10]u8 = undefined;
+
+    const len = encodeVarInt(16383, &buf);
+    try std.testing.expectEqual(@as(usize, 2), len);
+    const decoded = decodeVarInt(&buf);
+    try std.testing.expectEqual(@as(u64, 16383), decoded.value);
+
+    const len2 = encodeVarInt(2097151, &buf);
+    try std.testing.expectEqual(@as(usize, 3), len2);
+    const decoded2 = decodeVarInt(&buf);
+    try std.testing.expectEqual(@as(u64, 2097151), decoded2.value);
+}
+
+test "Bound infinity" {
+    const inf = Bound.infinity();
+    try std.testing.expectEqual(MAX_U64, inf.item.timestamp);
+    try std.testing.expectEqual(@as(usize, 0), inf.id_len);
+}
+
+test "Bound fromItem" {
+    var id: [ID_SIZE]u8 = undefined;
+    @memset(&id, 0xAB);
+    const item = Item.init(12345, &id);
+    const bound = Bound.fromItem(item);
+
+    try std.testing.expectEqual(@as(u64, 12345), bound.item.timestamp);
+    try std.testing.expectEqual(@as(usize, ID_SIZE), bound.id_len);
+}
+
+test "identical storage reconciliation" {
+    const allocator = std.testing.allocator;
+
+    var storage1 = VectorStorage.init(allocator);
+    defer storage1.deinit();
+    var storage2 = VectorStorage.init(allocator);
+    defer storage2.deinit();
+
+    var id: [ID_SIZE]u8 = undefined;
+    @memset(&id, 0xAA);
+    try storage1.insert(100, &id);
+    try storage2.insert(100, &id);
+
+    var id2: [ID_SIZE]u8 = undefined;
+    @memset(&id2, 0xBB);
+    try storage1.insert(200, &id2);
+    try storage2.insert(200, &id2);
+
+    var client = Negentropy.init(storage1.storage(), 0);
+    var server = Negentropy.init(storage2.storage(), 0);
+
+    var init_buf: [4096]u8 = undefined;
+    const init_msg = try client.initiate(&init_buf);
+
+    var server_buf: [4096]u8 = undefined;
+    var server_result = try server.reconcile(init_msg, &server_buf, allocator);
+    defer server_result.deinit();
+
+    var client_buf: [4096]u8 = undefined;
+    var client_result = try client.reconcile(server_result.output, &client_buf, allocator);
+    defer client_result.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), client_result.have_ids.items.len);
+    try std.testing.expectEqual(@as(usize, 0), client_result.need_ids.items.len);
+}
+
+test "empty storage reconciliation" {
+    const allocator = std.testing.allocator;
+
+    var storage1 = VectorStorage.init(allocator);
+    defer storage1.deinit();
+    var storage2 = VectorStorage.init(allocator);
+    defer storage2.deinit();
+
+    var client = Negentropy.init(storage1.storage(), 0);
+    var server = Negentropy.init(storage2.storage(), 0);
+
+    var init_buf: [4096]u8 = undefined;
+    const init_msg = try client.initiate(&init_buf);
+
+    var server_buf: [4096]u8 = undefined;
+    var server_result = try server.reconcile(init_msg, &server_buf, allocator);
+    defer server_result.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), server_result.have_ids.items.len);
+    try std.testing.expectEqual(@as(usize, 0), server_result.need_ids.items.len);
+}
+
+test "Fingerprint equality" {
+    var acc = Accumulator{};
+    var id: [ID_SIZE]u8 = undefined;
+    @memset(&id, 0x42);
+    acc.add(&id);
+
+    const fp = acc.getFingerprint(1);
+    try std.testing.expect(fp.eql(&fp.buf));
+
+    var wrong: [FINGERPRINT_SIZE]u8 = undefined;
+    @memset(&wrong, 0x00);
+    try std.testing.expect(!fp.eql(&wrong));
+}
+
+test "Accumulator add is commutative" {
+    var id1: [ID_SIZE]u8 = undefined;
+    @memset(&id1, 0x11);
+    var id2: [ID_SIZE]u8 = undefined;
+    @memset(&id2, 0x22);
+
+    var acc1 = Accumulator{};
+    acc1.add(&id1);
+    acc1.add(&id2);
+
+    var acc2 = Accumulator{};
+    acc2.add(&id2);
+    acc2.add(&id1);
+
+    const fp1 = acc1.getFingerprint(2);
+    const fp2 = acc2.getFingerprint(2);
+    try std.testing.expect(fp1.eql(&fp2.buf));
 }
