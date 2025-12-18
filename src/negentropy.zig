@@ -449,7 +449,7 @@ pub const Negentropy = struct {
         if (ts_len == 0) return error.BufferTooSmall;
         pos += ts_len;
         const id_len_len = encodeVarInt(bound.id_len, out[pos..]);
-        if (id_len_len == 0 and bound.id_len > 0) return error.BufferTooSmall;
+        if (id_len_len == 0) return error.BufferTooSmall;
         pos += id_len_len;
         if (bound.id_len > 0) {
             if (pos + bound.id_len > out.len) return error.BufferTooSmall;
