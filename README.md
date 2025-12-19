@@ -72,6 +72,12 @@ defer msg.deinit();
 const response = try nostr.RelayMsg.ok(event.id(), true, "", &buf);
 ```
 
+## Projects Using libnostr-z
+
+- [wisp](https://github.com/privkeyio/wisp) - Fast, lightweight nostr relay
+- [nostr-bench](https://github.com/privkeyio/nostr-bench) - Nostr relay benchmark tool
+- [puck](https://github.com/privkeyio/puck) - NIP-47 Wallet Connect server with LNbits backend
+
 ## License
 
 MIT - See [LICENSE](LICENSE)
