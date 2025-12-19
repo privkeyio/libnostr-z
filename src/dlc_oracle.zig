@@ -22,7 +22,9 @@ pub const OracleAnnouncement = struct {
         }
         var asset_pair: ?AssetPair = null;
         var title: ?[]const u8 = null;
+        errdefer if (title) |t| allocator.free(t);
         var description: ?[]const u8 = null;
+        errdefer if (description) |d| allocator.free(d);
         var n_tags: std.ArrayListUnmanaged([]const u8) = .{};
         defer {
             for (n_tags.items) |n| allocator.free(n);
@@ -48,9 +50,9 @@ pub const OracleAnnouncement = struct {
                     try relays.append(allocator, relay);
                 }
             } else if (std.mem.eql(u8, tag.name, "title")) {
-                title = tag.value;
+                title = try allocator.dupe(u8, tag.value);
             } else if (std.mem.eql(u8, tag.name, "description")) {
-                description = tag.value;
+                description = try allocator.dupe(u8, tag.value);
             } else if (std.mem.eql(u8, tag.name, "n")) {
                 const n_slice = try allocator.dupe(u8, tag.value);
                 try n_tags.append(allocator, n_slice);
@@ -84,6 +86,8 @@ pub const OracleAnnouncement = struct {
             allocator.free(relay);
         }
         allocator.free(self.relays);
+        if (self.title) |t| allocator.free(t);
+        if (self.description) |d| allocator.free(d);
         if (self.asset_pair) |pair| {
             allocator.free(pair.base);
             allocator.free(pair.quote);
@@ -143,6 +147,7 @@ pub const OracleAttestation = struct {
 
     pub fn parse(allocator: std.mem.Allocator, content: []const u8, tags_json: []const u8) !OracleAttestation {
         var announcement_id: ?[]const u8 = null;
+        errdefer if (announcement_id) |id| allocator.free(id);
         var asset_pair: ?AssetPair = null;
         var n_tags: std.ArrayListUnmanaged([]const u8) = .{};
         defer {
@@ -156,7 +161,7 @@ pub const OracleAttestation = struct {
 
         while (iter.next()) |tag| {
             if (std.mem.eql(u8, tag.name, "e")) {
-                announcement_id = tag.value;
+                announcement_id = try allocator.dupe(u8, tag.value);
             } else if (std.mem.eql(u8, tag.name, "n")) {
                 const n_slice = try allocator.dupe(u8, tag.value);
                 try n_tags.append(allocator, n_slice);
@@ -188,6 +193,7 @@ pub const OracleAttestation = struct {
     }
 
     pub fn deinit(self: *OracleAttestation, allocator: std.mem.Allocator) void {
+        allocator.free(self.announcement_event_id);
         if (self.asset_pair) |pair| {
             allocator.free(pair.base);
             allocator.free(pair.quote);
