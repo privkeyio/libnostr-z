@@ -41,7 +41,7 @@ pub const OracleAnnouncement = struct {
 
         while (iter.next()) |tag| {
             if (std.mem.eql(u8, tag.name, "relays")) {
-                // Extract all relay values from this tag (NIP-88: ["relays", "url1", "url2", ...])
+                // Extract all relay values from this tag (DLC Oracle format: ["relays", "url1", "url2", ...])
                 const all_relays = try extractAllTagValues(allocator, tags_json, iter.pos);
                 defer allocator.free(all_relays);
                 for (all_relays) |relay| {
@@ -460,7 +460,7 @@ test "isTrustedOraclesList" {
 
 test "OracleAnnouncement.parse basic" {
     const allocator = std.testing.allocator;
-    // NIP-88 format: relays tag contains multiple URLs in a single tag
+    // DLC Oracle format: relays tag contains multiple URLs in a single tag
     const json =
         \\{"tags":[["relays","wss://relay1.example.com","wss://relay2.example.com"],["title","BTC/USD Price"],["description","Daily price attestation"],["n","BTC"],["n","USD"]]}
     ;
@@ -510,7 +510,7 @@ test "OracleAnnouncement.serialize" {
     const result = try announcement.serialize(&buf);
     try std.testing.expect(std.mem.indexOf(u8, result, "\"kind\":88") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "\"content\":\"testdata123\"") != null);
-    // NIP-88 format: all relays in one tag
+    // DLC Oracle format: all relays in one tag
     try std.testing.expect(std.mem.indexOf(u8, result, "[\"relays\",\"wss://relay1.com\",\"wss://relay2.com\"]") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "[\"title\",\"Test Event\"]") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "[\"n\",\"BTC\"]") != null);
