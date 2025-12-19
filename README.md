@@ -24,6 +24,7 @@ A Zig library for the Nostr protocol.
 | [65](https://github.com/nostr-protocol/nips/blob/master/65.md) | Relay List Metadata | `relay_metadata` module |
 | [70](https://github.com/nostr-protocol/nips/blob/master/70.md) | Protected Events | `isProtected` |
 | [77](https://github.com/nostr-protocol/nips/blob/master/77.md) | Negentropy | Full protocol support |
+| [88](https://github.com/nostr-protocol/nips/blob/master/88.md) | DLC Oracles | `nip88` module |
 | [2022](https://gitlab.com/invincible-privacy/joinstr) | Joinstr Coinjoin Pools | `joinstr` module |
 | [CLINK](https://github.com/shocknet/CLINK) | Common Lightning Interface for Nostr Keys | `clink` module |
 
