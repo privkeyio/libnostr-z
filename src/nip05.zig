@@ -92,19 +92,29 @@ pub const Response = struct {
         pos: usize,
 
         pub fn next(self: *RelayIterator) ?[]const u8 {
+            // Skip to the opening quote of the next string
             while (self.pos < self.json.len and self.json[self.pos] != '"') {
                 if (self.json[self.pos] == ']') return null;
                 self.pos += 1;
             }
             if (self.pos >= self.json.len) return null;
-            self.pos += 1;
+            self.pos += 1; // Skip opening quote
 
             const start = self.pos;
-            while (self.pos < self.json.len and self.json[self.pos] != '"') : (self.pos += 1) {}
+            // Scan for closing quote, handling escape sequences
+            while (self.pos < self.json.len) {
+                if (self.json[self.pos] == '\\') {
+                    // Skip escape sequence (backslash + next char)
+                    self.pos += 2;
+                    continue;
+                }
+                if (self.json[self.pos] == '"') break;
+                self.pos += 1;
+            }
             if (self.pos >= self.json.len) return null;
 
             const result = self.json[start..self.pos];
-            self.pos += 1;
+            self.pos += 1; // Skip closing quote
             return result;
         }
     };
@@ -158,6 +168,10 @@ fn toLowerSlice(input: []const u8, buf: []u8) []u8 {
     return buf[0..len];
 }
 
+/// Percent-encode a string for use in URL query parameters (RFC 3986).
+/// Note: Input is expected to be validated by isValidLocalPart(), which only
+/// allows alphanumeric characters, '-', '_', and '.'. Since '%' is not allowed
+/// in valid local parts, double-encoding cannot occur.
 fn percentEncode(writer: anytype, input: []const u8) !void {
     for (input) |c| {
         if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~') {
@@ -298,6 +312,24 @@ test "Response relay iterator" {
 
     try std.testing.expectEqualStrings("wss://relay1.com", iter.next().?);
     try std.testing.expectEqualStrings("wss://relay2.com", iter.next().?);
+    try std.testing.expectEqualStrings("wss://relay3.com", iter.next().?);
+    try std.testing.expect(iter.next() == null);
+}
+
+test "Response relay iterator with escaped characters" {
+    // Test that the iterator correctly handles JSON escape sequences.
+    // Note: The iterator returns raw JSON string slices (not decoded), so escape
+    // sequences like \\ remain as-is. This is acceptable for relay URLs since they
+    // should not contain characters that need escaping.
+    const json =
+        \\{"names":{"bob":"b0635d6a9851d3aed0cd6c495b282167acf761729078d975fc341b22650b07b9"},"relays":{"b0635d6a9851d3aed0cd6c495b282167acf761729078d975fc341b22650b07b9":["wss://relay1.com","wss://relay2.com\\path","wss://relay3.com"]}}
+    ;
+    const resp = Response.init(json);
+    var iter = resp.iterateRelays("b0635d6a9851d3aed0cd6c495b282167acf761729078d975fc341b22650b07b9").?;
+
+    try std.testing.expectEqualStrings("wss://relay1.com", iter.next().?);
+    // The escaped backslash (\\) is preserved as raw bytes in the slice
+    try std.testing.expectEqualStrings("wss://relay2.com\\\\path", iter.next().?);
     try std.testing.expectEqualStrings("wss://relay3.com", iter.next().?);
     try std.testing.expect(iter.next() == null);
 }
