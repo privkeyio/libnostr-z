@@ -41,8 +41,12 @@ pub const OracleAnnouncement = struct {
 
         while (iter.next()) |tag| {
             if (std.mem.eql(u8, tag.name, "relays")) {
-                const relay_slice = try allocator.dupe(u8, tag.value);
-                try relays.append(allocator, relay_slice);
+                // Extract all relay values from this tag (NIP-88: ["relays", "url1", "url2", ...])
+                const all_relays = try extractAllTagValues(allocator, tags_json, iter.pos);
+                defer allocator.free(all_relays);
+                for (all_relays) |relay| {
+                    try relays.append(allocator, relay);
+                }
             } else if (std.mem.eql(u8, tag.name, "title")) {
                 title = tag.value;
             } else if (std.mem.eql(u8, tag.name, "description")) {
@@ -58,9 +62,12 @@ pub const OracleAnnouncement = struct {
                 .base = n_tags.items[0],
                 .quote = n_tags.items[1],
             };
-            n_tags.items[0] = undefined;
-            n_tags.items[1] = undefined;
-            n_tags.shrinkRetainingCapacity(0);
+            // Free any extra n_tags beyond the first two
+            for (n_tags.items[2..]) |extra| {
+                allocator.free(extra);
+            }
+            // Clear items so defer doesn't double-free transferred ownership
+            n_tags.clearRetainingCapacity();
         }
 
         return .{
@@ -165,9 +172,12 @@ pub const OracleAttestation = struct {
                 .base = n_tags.items[0],
                 .quote = n_tags.items[1],
             };
-            n_tags.items[0] = undefined;
-            n_tags.items[1] = undefined;
-            n_tags.shrinkRetainingCapacity(0);
+            // Free any extra n_tags beyond the first two
+            for (n_tags.items[2..]) |extra| {
+                allocator.free(extra);
+            }
+            // Clear items so defer doesn't double-free transferred ownership
+            n_tags.clearRetainingCapacity();
         }
 
         return .{
@@ -283,6 +293,76 @@ pub const TrustedOraclesList = struct {
     }
 };
 
+fn extractAllTagValues(allocator: std.mem.Allocator, json: []const u8, start_pos: usize) ![][]const u8 {
+    var values: std.ArrayListUnmanaged([]const u8) = .{};
+    errdefer {
+        for (values.items) |v| allocator.free(v);
+        values.deinit(allocator);
+    }
+
+    var pos = start_pos;
+
+    // Find the start of the current tag
+    while (pos > 0 and json[pos - 1] != '[') : (pos -= 1) {}
+    if (pos == 0) return values.toOwnedSlice(allocator);
+
+    var depth: i32 = 0;
+    var in_string = false;
+    var escaped = false;
+    var comma_count: u32 = 0;
+
+    while (pos < json.len) {
+        const c = json[pos];
+
+        if (escaped) {
+            escaped = false;
+            pos += 1;
+            continue;
+        }
+
+        if (c == '\\' and in_string) {
+            escaped = true;
+            pos += 1;
+            continue;
+        }
+
+        if (c == '"') {
+            if (!in_string) {
+                in_string = true;
+                // Values start after the first comma (index 0 is tag name)
+                if (depth == 0 and comma_count >= 1) {
+                    pos += 1;
+                    const value_start = pos;
+                    const value_end = utils.findStringEnd(json, value_start) orelse break;
+                    const val = try allocator.dupe(u8, json[value_start..value_end]);
+                    try values.append(allocator, val);
+                    pos = value_end;
+                    in_string = false;
+                }
+            } else {
+                in_string = false;
+            }
+            pos += 1;
+            continue;
+        }
+
+        if (!in_string) {
+            if (c == '[') {
+                depth += 1;
+            } else if (c == ']') {
+                if (depth == 0) break;
+                depth -= 1;
+            } else if (c == ',' and depth == 0) {
+                comma_count += 1;
+            }
+        }
+
+        pos += 1;
+    }
+
+    return values.toOwnedSlice(allocator);
+}
+
 fn extractSecondTagValue(json: []const u8, start_pos: usize) ?[]const u8 {
     var pos = start_pos;
 
@@ -380,8 +460,9 @@ test "isTrustedOraclesList" {
 
 test "OracleAnnouncement.parse basic" {
     const allocator = std.testing.allocator;
+    // NIP-88 format: relays tag contains multiple URLs in a single tag
     const json =
-        \\{"tags":[["relays","wss://relay.example.com"],["title","BTC/USD Price"],["description","Daily price attestation"],["n","BTC"],["n","USD"]]}
+        \\{"tags":[["relays","wss://relay1.example.com","wss://relay2.example.com"],["title","BTC/USD Price"],["description","Daily price attestation"],["n","BTC"],["n","USD"]]}
     ;
     const content = "BA/cNhCpdD25j/MwDaa4F42QIq8NsOGmaW1MxyswZnip";
 
@@ -389,8 +470,9 @@ test "OracleAnnouncement.parse basic" {
     defer announcement.deinit(allocator);
 
     try std.testing.expectEqualStrings("BA/cNhCpdD25j/MwDaa4F42QIq8NsOGmaW1MxyswZnip", announcement.announcement_data);
-    try std.testing.expectEqual(@as(usize, 1), announcement.relays.len);
-    try std.testing.expectEqualStrings("wss://relay.example.com", announcement.relays[0]);
+    try std.testing.expectEqual(@as(usize, 2), announcement.relays.len);
+    try std.testing.expectEqualStrings("wss://relay1.example.com", announcement.relays[0]);
+    try std.testing.expectEqualStrings("wss://relay2.example.com", announcement.relays[1]);
     try std.testing.expectEqualStrings("BTC/USD Price", announcement.title.?);
     try std.testing.expectEqualStrings("Daily price attestation", announcement.description.?);
     try std.testing.expectEqualStrings("BTC", announcement.asset_pair.?.base);
@@ -419,7 +501,7 @@ test "OracleAnnouncement.serialize" {
 
     const announcement = OracleAnnouncement{
         .announcement_data = "testdata123",
-        .relays = &[_][]const u8{"wss://relay1.com"},
+        .relays = &[_][]const u8{ "wss://relay1.com", "wss://relay2.com" },
         .title = "Test Event",
         .description = "A test oracle event",
         .asset_pair = .{ .base = "BTC", .quote = "USD" },
@@ -428,7 +510,8 @@ test "OracleAnnouncement.serialize" {
     const result = try announcement.serialize(&buf);
     try std.testing.expect(std.mem.indexOf(u8, result, "\"kind\":88") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "\"content\":\"testdata123\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "[\"relays\",\"wss://relay1.com\"]") != null);
+    // NIP-88 format: all relays in one tag
+    try std.testing.expect(std.mem.indexOf(u8, result, "[\"relays\",\"wss://relay1.com\",\"wss://relay2.com\"]") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "[\"title\",\"Test Event\"]") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "[\"n\",\"BTC\"]") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "[\"n\",\"USD\"]") != null);
