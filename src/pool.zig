@@ -16,11 +16,11 @@ const ClientMsg = messages_mod.ClientMsg;
 const RelayMsgParsed = messages_mod.RelayMsgParsed;
 const RelayMsgType = messages_mod.RelayMsgType;
 
-pub const RelayStatus = enum {
-    disconnected,
-    connecting,
-    connected,
-    failed,
+pub const RelayStatus = enum(u8) {
+    disconnected = 0,
+    connecting = 1,
+    connected = 2,
+    failed = 3,
 };
 
 pub const PublishResult = struct {
@@ -39,7 +39,7 @@ pub const SubscriptionEvent = struct {
 pub const RelayHandle = struct {
     url: []const u8,
     client: ?Client,
-    status: RelayStatus,
+    status: std.atomic.Value(RelayStatus),
     thread: ?Thread,
     should_stop: std.atomic.Value(bool),
     last_error: ?[]const u8,
@@ -49,12 +49,20 @@ pub const RelayHandle = struct {
         return .{
             .url = try allocator.dupe(u8, url),
             .client = null,
-            .status = .disconnected,
+            .status = std.atomic.Value(RelayStatus).init(.disconnected),
             .thread = null,
             .should_stop = std.atomic.Value(bool).init(false),
             .last_error = null,
             .allocator = allocator,
         };
+    }
+
+    pub fn getStatus(self: *const RelayHandle) RelayStatus {
+        return self.status.load(.acquire);
+    }
+
+    pub fn setStatus(self: *RelayHandle, new_status: RelayStatus) void {
+        self.status.store(new_status, .release);
     }
 
     pub fn deinit(self: *RelayHandle) void {
@@ -66,13 +74,13 @@ pub const RelayHandle = struct {
     }
 
     pub fn connect(self: *RelayHandle) !void {
-        if (self.status == .connected) return;
+        if (self.getStatus() == .connected) return;
 
-        self.status = .connecting;
-        errdefer self.status = .failed;
+        self.setStatus(.connecting);
+        errdefer self.setStatus(.failed);
 
         self.client = try Client.connect(self.allocator, self.url);
-        self.status = .connected;
+        self.setStatus(.connected);
     }
 
     pub fn disconnect(self: *RelayHandle) void {
@@ -88,7 +96,7 @@ pub const RelayHandle = struct {
             self.client = null;
         }
 
-        self.status = .disconnected;
+        self.setStatus(.disconnected);
         self.should_stop.store(false, .release);
     }
 
@@ -215,7 +223,7 @@ pub const Pool = struct {
         var connected: usize = 0;
         for (self.relays.items) |*relay| {
             relay.connect() catch |err| {
-                relay.status = .failed;
+                relay.setStatus(.failed);
                 const err_msg = @errorName(err);
                 relay.last_error = self.allocator.dupe(u8, err_msg) catch null;
                 continue;
@@ -238,9 +246,9 @@ pub const Pool = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        for (self.relays.items) |relay| {
+        for (self.relays.items) |*relay| {
             if (std.mem.eql(u8, relay.url, url)) {
-                return relay.status;
+                return relay.getStatus();
             }
         }
         return null;
@@ -251,8 +259,8 @@ pub const Pool = struct {
         defer self.mutex.unlock();
 
         var count: usize = 0;
-        for (self.relays.items) |relay| {
-            if (relay.status == .connected) {
+        for (self.relays.items) |*relay| {
+            if (relay.getStatus() == .connected) {
                 count += 1;
             }
         }
@@ -266,13 +274,29 @@ pub const Pool = struct {
     }
 
     pub fn publish(self: *Pool, event_json: []const u8) ![]PublishResult {
-        var msg_buf: [65536]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&msg_buf);
-        const writer = fbs.writer();
-        try writer.writeAll("[\"EVENT\",");
-        try writer.writeAll(event_json);
-        try writer.writeAll("]");
-        const msg = fbs.getWritten();
+        const required_len = event_json.len + 16; // ["EVENT",] + ]
+        var stack_buf: [65536]u8 = undefined;
+
+        var msg: []const u8 = undefined;
+        var heap_buf: ?[]u8 = null;
+        defer if (heap_buf) |buf| self.allocator.free(buf);
+
+        if (required_len <= stack_buf.len) {
+            var fbs = std.io.fixedBufferStream(&stack_buf);
+            const writer = fbs.writer();
+            writer.writeAll("[\"EVENT\",") catch return error.BufferTooSmall;
+            writer.writeAll(event_json) catch return error.BufferTooSmall;
+            writer.writeAll("]") catch return error.BufferTooSmall;
+            msg = fbs.getWritten();
+        } else {
+            heap_buf = try self.allocator.alloc(u8, required_len);
+            var fbs = std.io.fixedBufferStream(heap_buf.?);
+            const writer = fbs.writer();
+            try writer.writeAll("[\"EVENT\",");
+            try writer.writeAll(event_json);
+            try writer.writeAll("]");
+            msg = fbs.getWritten();
+        }
 
         self.mutex.lock();
         defer self.mutex.unlock();
@@ -281,7 +305,7 @@ pub const Pool = struct {
         var result_idx: usize = 0;
 
         for (self.relays.items) |*relay| {
-            if (relay.status != .connected) {
+            if (relay.getStatus() != .connected) {
                 results[result_idx] = .{
                     .relay_url = relay.url,
                     .success = false,
@@ -316,13 +340,29 @@ pub const Pool = struct {
     }
 
     pub fn publishToOne(self: *Pool, event_json: []const u8) !?PublishResult {
-        var msg_buf: [65536]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&msg_buf);
-        const writer = fbs.writer();
-        try writer.writeAll("[\"EVENT\",");
-        try writer.writeAll(event_json);
-        try writer.writeAll("]");
-        const msg = fbs.getWritten();
+        const required_len = event_json.len + 16; // ["EVENT",] + ]
+        var stack_buf: [65536]u8 = undefined;
+
+        var msg: []const u8 = undefined;
+        var heap_buf: ?[]u8 = null;
+        defer if (heap_buf) |buf| self.allocator.free(buf);
+
+        if (required_len <= stack_buf.len) {
+            var fbs = std.io.fixedBufferStream(&stack_buf);
+            const writer = fbs.writer();
+            writer.writeAll("[\"EVENT\",") catch return error.BufferTooSmall;
+            writer.writeAll(event_json) catch return error.BufferTooSmall;
+            writer.writeAll("]") catch return error.BufferTooSmall;
+            msg = fbs.getWritten();
+        } else {
+            heap_buf = try self.allocator.alloc(u8, required_len);
+            var fbs = std.io.fixedBufferStream(heap_buf.?);
+            const writer = fbs.writer();
+            try writer.writeAll("[\"EVENT\",");
+            try writer.writeAll(event_json);
+            try writer.writeAll("]");
+            msg = fbs.getWritten();
+        }
 
         self.mutex.lock();
         defer self.mutex.unlock();
@@ -337,7 +377,7 @@ pub const Pool = struct {
             const idx = (start_idx + attempts) % relay_count;
             const relay = &self.relays.items[idx];
 
-            if (relay.status != .connected) continue;
+            if (relay.getStatus() != .connected) continue;
 
             relay.send(msg) catch continue;
 
@@ -376,7 +416,7 @@ pub const Pool = struct {
         });
 
         for (self.relays.items) |*relay| {
-            if (relay.status == .connected) {
+            if (relay.getStatus() == .connected) {
                 relay.send(msg) catch continue;
             }
         }
@@ -399,7 +439,7 @@ pub const Pool = struct {
         }
 
         for (self.relays.items) |*relay| {
-            if (relay.status == .connected) {
+            if (relay.getStatus() == .connected) {
                 relay.send(msg) catch continue;
             }
         }
@@ -410,7 +450,7 @@ pub const Pool = struct {
         defer self.mutex.unlock();
 
         for (self.relays.items) |*relay| {
-            if (relay.status == .connected and relay.thread == null) {
+            if (relay.getStatus() == .connected and relay.thread == null) {
                 relay.thread = try Thread.spawn(.{}, workerThread, .{ self, relay });
                 _ = self.active_workers.fetchAdd(1, .monotonic);
             }
@@ -425,7 +465,7 @@ pub const Pool = struct {
         while (!relay.should_stop.load(.acquire)) {
             const message = relay.recv() catch |err| {
                 if (err == error.EndOfStream) {
-                    relay.status = .disconnected;
+                    relay.setStatus(.disconnected);
                     break;
                 }
                 continue;
@@ -444,11 +484,11 @@ pub const Pool = struct {
                 var event = try Event.parseWithAllocator(event_data, self.allocator);
                 defer event.deinit();
 
-                if (self.isDuplicate(event.id())) {
-                    return;
+                // Atomic check-and-mark to avoid TOCTOU race
+                if (!try self.tryMarkSeen(event.id())) {
+                    return; // Already seen, skip
                 }
 
-                try self.markSeen(event.id());
                 try self.message_queue.push(payload, relay_url);
             }
         } else {
@@ -513,6 +553,40 @@ pub const Pool = struct {
         return self.seen_events.contains(event_id.*);
     }
 
+    /// Atomically checks if event_id is already seen and marks it if not.
+    /// Returns true if the event was NOT seen before (i.e., newly marked).
+    /// Returns false if the event was already seen (duplicate).
+    fn tryMarkSeen(self: *Pool, event_id: *const [32]u8) !bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        // Check if already seen
+        if (self.seen_events.contains(event_id.*)) {
+            return false; // Duplicate
+        }
+
+        // Evict oldest if at capacity
+        if (self.seen_events.count() >= self.options.dedup_cache_size) {
+            var oldest_key: ?[32]u8 = null;
+            var oldest_time: i64 = std.math.maxInt(i64);
+
+            var iter = self.seen_events.iterator();
+            while (iter.next()) |entry| {
+                if (entry.value_ptr.* < oldest_time) {
+                    oldest_time = entry.value_ptr.*;
+                    oldest_key = entry.key_ptr.*;
+                }
+            }
+
+            if (oldest_key) |key| {
+                _ = self.seen_events.remove(key);
+            }
+        }
+
+        try self.seen_events.put(self.allocator, event_id.*, std.time.timestamp());
+        return true; // Newly seen
+    }
+
     fn markSeen(self: *Pool, event_id: *const [32]u8) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
@@ -558,10 +632,10 @@ pub const Pool = struct {
         var infos = try self.allocator.alloc(RelayInfo, self.relays.items.len);
         errdefer self.allocator.free(infos);
 
-        for (self.relays.items, 0..) |relay, i| {
+        for (self.relays.items, 0..) |*relay, i| {
             infos[i] = .{
                 .url = try self.allocator.dupe(u8, relay.url),
-                .status = relay.status,
+                .status = relay.getStatus(),
                 .last_error = if (relay.last_error) |err| try self.allocator.dupe(u8, err) else null,
             };
         }
@@ -597,9 +671,12 @@ pub const Pool = struct {
         const deadline = std.time.nanoTimestamp() + @as(i128, timeout_ns);
 
         var eose_count: usize = 0;
-        const relay_count = self.connectedCount();
 
         while (std.time.nanoTimestamp() < deadline) {
+            // Dynamically check current connected count to handle disconnects
+            const current_connected = self.connectedCount();
+            if (current_connected == 0 or eose_count >= current_connected) break;
+
             const remaining: u64 = @intCast(@max(0, deadline - std.time.nanoTimestamp()));
             const msg = self.receiveWithTimeout(@min(remaining, 100 * std.time.ns_per_ms)) orelse continue;
             defer self.freeMessage(msg);
@@ -608,7 +685,6 @@ pub const Pool = struct {
 
             if (parsed.msg_type == .eose) {
                 eose_count += 1;
-                if (eose_count >= relay_count) break;
             } else if (parsed.msg_type == .event) {
                 if (self.parseEventFromMessage(msg.data)) |event_data| {
                     const event = Event.parseWithAllocator(event_data, self.allocator) catch continue;
@@ -696,7 +772,7 @@ test "relay handle lifecycle" {
     var handle = try RelayHandle.init(allocator, "wss://test.relay.com");
     defer handle.deinit();
 
-    try std.testing.expectEqual(RelayStatus.disconnected, handle.status);
+    try std.testing.expectEqual(RelayStatus.disconnected, handle.getStatus());
     try std.testing.expectEqualStrings("wss://test.relay.com", handle.url);
 }
 
