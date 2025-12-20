@@ -32,6 +32,7 @@ pub const pow = @import("pow.zig");
 pub const nwc = @import("nwc.zig");
 pub const nip46 = @import("nip46.zig");
 pub const nip06 = @import("nip06.zig");
+pub const nip57 = @import("nip57.zig");
 pub const nip86 = @import("nip86.zig");
 pub const clink = @import("clink.zig");
 pub const joinstr = @import("joinstr.zig");
@@ -108,6 +109,7 @@ test {
     _ = @import("crypto.zig");
     _ = @import("nip46.zig");
     _ = @import("nip06.zig");
+    _ = @import("nip57.zig");
     _ = @import("nip86.zig");
     _ = @import("clink.zig");
     _ = @import("joinstr.zig");
