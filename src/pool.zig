@@ -224,6 +224,9 @@ pub const Pool = struct {
         for (self.relays.items) |*relay| {
             relay.connect() catch |err| {
                 relay.setStatus(.failed);
+                if (relay.last_error) |old_err| {
+                    self.allocator.free(old_err);
+                }
                 const err_msg = @errorName(err);
                 relay.last_error = self.allocator.dupe(u8, err_msg) catch null;
                 continue;
