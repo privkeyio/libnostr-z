@@ -246,7 +246,7 @@ pub fn calculateSplitPercentages(splits: []const ZapSplit, percentages: []u32) v
 
     for (splits, 0..) |split, i| {
         if (split.weight > 0) {
-            percentages[i] = @intCast((split.weight * 100) / total_weight);
+            percentages[i] = @intCast((@as(u64, split.weight) * 100) / total_weight);
         } else {
             percentages[i] = 0;
         }
