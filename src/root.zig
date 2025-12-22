@@ -60,6 +60,7 @@ pub const TagIndex = tags_mod.TagIndex;
 pub const TagIterator = tags_mod.TagIterator;
 
 pub const Event = event_mod.Event;
+pub const Kind = event_mod.Kind;
 pub const KindType = event_mod.KindType;
 pub const kindType = event_mod.kindType;
 pub const isExpired = event_mod.isExpired;

@@ -243,19 +243,161 @@ pub const Event = struct {
     }
 };
 
-pub const KindType = enum {
-    regular,
-    replaceable,
-    ephemeral,
-    addressable,
+pub const Kind = struct {
+    pub const metadata: i32 = 0;
+    pub const short_text_note: i32 = 1;
+    pub const recommend_relay: i32 = 2;
+    pub const contacts: i32 = 3;
+    pub const encrypted_direct_message: i32 = 4;
+    pub const event_deletion: i32 = 5;
+    pub const repost: i32 = 6;
+    pub const reaction: i32 = 7;
+    pub const badge_award: i32 = 8;
+    pub const group_chat_message: i32 = 9;
+    pub const group_chat_threaded_reply: i32 = 10;
+    pub const group_thread: i32 = 11;
+    pub const group_thread_reply: i32 = 12;
+    pub const seal: i32 = 13;
+    pub const direct_message: i32 = 14;
+    pub const generic_repost: i32 = 16;
+    pub const reaction_to_website: i32 = 17;
+    pub const channel_creation: i32 = 40;
+    pub const channel_metadata: i32 = 41;
+    pub const channel_message: i32 = 42;
+    pub const channel_hide_message: i32 = 43;
+    pub const channel_mute_user: i32 = 44;
+    pub const chess: i32 = 64;
+    pub const merge_request: i32 = 818;
+    pub const bid: i32 = 1021;
+    pub const bid_confirmation: i32 = 1022;
+    pub const open_timestamps: i32 = 1040;
+    pub const file_metadata: i32 = 1063;
+    pub const comment: i32 = 1111;
+    pub const live_chat_message: i32 = 1311;
+    pub const patches: i32 = 1617;
+    pub const issues: i32 = 1621;
+    pub const replies: i32 = 1622;
+    pub const problem_tracker: i32 = 1971;
+    pub const report: i32 = 1984;
+    pub const label: i32 = 1985;
+    pub const torrent: i32 = 2003;
+    pub const torrent_comment: i32 = 2004;
+    pub const coinjoin_pool: i32 = 2022;
+    pub const community_post_approval: i32 = 4550;
+    pub const job_request_start: i32 = 5000;
+    pub const job_request_end: i32 = 5999;
+    pub const job_result_start: i32 = 6000;
+    pub const job_result_end: i32 = 6999;
+    pub const job_feedback: i32 = 7000;
+    pub const group_add_user: i32 = 9000;
+    pub const group_remove_user: i32 = 9001;
+    pub const group_edit_metadata: i32 = 9002;
+    pub const group_add_permission: i32 = 9003;
+    pub const group_remove_permission: i32 = 9004;
+    pub const group_delete_event: i32 = 9005;
+    pub const group_edit_status: i32 = 9006;
+    pub const group_create_group: i32 = 9007;
+    pub const group_delete_group: i32 = 9008;
+    pub const group_create_invite: i32 = 9009;
+    pub const zap_goal: i32 = 9041;
+    pub const zap_request: i32 = 9734;
+    pub const zap_receipt: i32 = 9735;
+    pub const mute_list: i32 = 10000;
+    pub const pin_list: i32 = 10001;
+    pub const relay_list_metadata: i32 = 10002;
+    pub const bookmark_list: i32 = 10003;
+    pub const communities_list: i32 = 10004;
+    pub const public_chats_list: i32 = 10005;
+    pub const blocked_relays_list: i32 = 10006;
+    pub const search_relays_list: i32 = 10007;
+    pub const user_groups: i32 = 10009;
+    pub const interests_list: i32 = 10015;
+    pub const user_emoji_list: i32 = 10030;
+    pub const dm_relay_list: i32 = 10050;
+    pub const file_storage_servers: i32 = 10096;
+    pub const nwc_info: i32 = 13194;
+    pub const ephemeral_start: i32 = 20000;
+    pub const ephemeral_end: i32 = 29999;
+    pub const client_authentication: i32 = 22242;
+    pub const wallet_request: i32 = 23194;
+    pub const wallet_response: i32 = 23195;
+    pub const nostr_connect: i32 = 24133;
+    pub const http_auth: i32 = 27235;
+    pub const follow_sets: i32 = 30000;
+    pub const generic_lists: i32 = 30001;
+    pub const relay_sets: i32 = 30002;
+    pub const bookmark_sets: i32 = 30003;
+    pub const curation_sets: i32 = 30004;
+    pub const profile_badges: i32 = 30008;
+    pub const badge_definition: i32 = 30009;
+    pub const interest_sets: i32 = 30015;
+    pub const create_update_stall: i32 = 30017;
+    pub const create_update_product: i32 = 30018;
+    pub const marketplace_ui_ux: i32 = 30019;
+    pub const long_form_content: i32 = 30023;
+    pub const draft_long_form_content: i32 = 30024;
+    pub const emoji_sets: i32 = 30030;
+    pub const application_specific_data: i32 = 30078;
+    pub const live_event: i32 = 30311;
+    pub const user_status: i32 = 30315;
+    pub const classified_listing: i32 = 30402;
+    pub const draft_classified_listing: i32 = 30403;
+    pub const repository_announcement: i32 = 30617;
+    pub const repository_state: i32 = 30618;
+    pub const wiki_article: i32 = 30818;
+    pub const redirects: i32 = 30819;
+    pub const date_calendar_event: i32 = 31922;
+    pub const time_calendar_event: i32 = 31923;
+    pub const calendar: i32 = 31924;
+    pub const calendar_event_rsvp: i32 = 31925;
+    pub const handler_recommendation: i32 = 31989;
+    pub const handler_information: i32 = 31990;
+    pub const community_definition: i32 = 34550;
+
+    pub const Type = enum {
+        regular,
+        replaceable,
+        ephemeral,
+        addressable,
+    };
+
+    pub fn classify(kind_num: i32) Type {
+        if (kind_num == metadata or kind_num == contacts) return .replaceable;
+        if (kind_num >= 10000 and kind_num < 20000) return .replaceable;
+        if (kind_num >= 20000 and kind_num < 30000) return .ephemeral;
+        if (kind_num >= 30000 and kind_num < 40000) return .addressable;
+        return .regular;
+    }
+
+    pub fn isRegular(kind_num: i32) bool {
+        return classify(kind_num) == .regular;
+    }
+
+    pub fn isReplaceable(kind_num: i32) bool {
+        return classify(kind_num) == .replaceable;
+    }
+
+    pub fn isEphemeral(kind_num: i32) bool {
+        return classify(kind_num) == .ephemeral;
+    }
+
+    pub fn isAddressable(kind_num: i32) bool {
+        return classify(kind_num) == .addressable;
+    }
+
+    pub fn isJobRequest(kind_num: i32) bool {
+        return kind_num >= job_request_start and kind_num <= job_request_end;
+    }
+
+    pub fn isJobResult(kind_num: i32) bool {
+        return kind_num >= job_result_start and kind_num <= job_result_end;
+    }
 };
 
-pub fn kindType(kind_num: i32) KindType {
-    if (kind_num == 0 or kind_num == 3) return .replaceable;
-    if (kind_num >= 10000 and kind_num < 20000) return .replaceable;
-    if (kind_num >= 20000 and kind_num < 30000) return .ephemeral;
-    if (kind_num >= 30000 and kind_num < 40000) return .addressable;
-    return .regular;
+pub const KindType = Kind.Type;
+
+pub fn kindType(kind_num: i32) Kind.Type {
+    return Kind.classify(kind_num);
 }
 
 pub fn isExpired(event: *const Event) bool {
@@ -266,7 +408,7 @@ pub fn isExpired(event: *const Event) bool {
 }
 
 pub fn isDeletion(event: *const Event) bool {
-    return event.kind() == 5;
+    return event.kind() == Kind.event_deletion;
 }
 
 pub fn isProtected(event: *const Event) bool {
@@ -438,4 +580,75 @@ test "NIP-65 kind:10002 is classified as replaceable" {
     try std.testing.expectEqual(KindType.ephemeral, kindType(20000));
     try std.testing.expectEqual(KindType.addressable, kindType(30000));
     try std.testing.expectEqual(KindType.regular, kindType(1));
+}
+
+test "Kind constants have correct values" {
+    try std.testing.expectEqual(@as(i32, 0), Kind.metadata);
+    try std.testing.expectEqual(@as(i32, 1), Kind.short_text_note);
+    try std.testing.expectEqual(@as(i32, 3), Kind.contacts);
+    try std.testing.expectEqual(@as(i32, 5), Kind.event_deletion);
+    try std.testing.expectEqual(@as(i32, 6), Kind.repost);
+    try std.testing.expectEqual(@as(i32, 7), Kind.reaction);
+    try std.testing.expectEqual(@as(i32, 9734), Kind.zap_request);
+    try std.testing.expectEqual(@as(i32, 9735), Kind.zap_receipt);
+    try std.testing.expectEqual(@as(i32, 10002), Kind.relay_list_metadata);
+    try std.testing.expectEqual(@as(i32, 30023), Kind.long_form_content);
+}
+
+test "Kind.classify matches kindType for backwards compatibility" {
+    try std.testing.expectEqual(kindType(Kind.metadata), Kind.classify(Kind.metadata));
+    try std.testing.expectEqual(kindType(Kind.short_text_note), Kind.classify(Kind.short_text_note));
+    try std.testing.expectEqual(kindType(Kind.relay_list_metadata), Kind.classify(Kind.relay_list_metadata));
+    try std.testing.expectEqual(kindType(Kind.wallet_request), Kind.classify(Kind.wallet_request));
+    try std.testing.expectEqual(kindType(Kind.long_form_content), Kind.classify(Kind.long_form_content));
+}
+
+test "Kind.isReplaceable identifies replaceable kinds" {
+    try std.testing.expect(Kind.isReplaceable(Kind.metadata));
+    try std.testing.expect(Kind.isReplaceable(Kind.contacts));
+    try std.testing.expect(Kind.isReplaceable(Kind.relay_list_metadata));
+    try std.testing.expect(Kind.isReplaceable(Kind.mute_list));
+    try std.testing.expect(!Kind.isReplaceable(Kind.short_text_note));
+    try std.testing.expect(!Kind.isReplaceable(Kind.event_deletion));
+}
+
+test "Kind.isEphemeral identifies ephemeral kinds" {
+    try std.testing.expect(Kind.isEphemeral(Kind.wallet_request));
+    try std.testing.expect(Kind.isEphemeral(Kind.client_authentication));
+    try std.testing.expect(Kind.isEphemeral(Kind.nostr_connect));
+    try std.testing.expect(Kind.isEphemeral(20001));
+    try std.testing.expect(!Kind.isEphemeral(Kind.short_text_note));
+    try std.testing.expect(!Kind.isEphemeral(Kind.long_form_content));
+}
+
+test "Kind.isAddressable identifies addressable kinds" {
+    try std.testing.expect(Kind.isAddressable(Kind.long_form_content));
+    try std.testing.expect(Kind.isAddressable(Kind.follow_sets));
+    try std.testing.expect(Kind.isAddressable(Kind.badge_definition));
+    try std.testing.expect(Kind.isAddressable(Kind.live_event));
+    try std.testing.expect(!Kind.isAddressable(Kind.short_text_note));
+    try std.testing.expect(!Kind.isAddressable(Kind.relay_list_metadata));
+}
+
+test "Kind.isRegular identifies regular kinds" {
+    try std.testing.expect(Kind.isRegular(Kind.short_text_note));
+    try std.testing.expect(Kind.isRegular(Kind.event_deletion));
+    try std.testing.expect(Kind.isRegular(Kind.repost));
+    try std.testing.expect(Kind.isRegular(Kind.reaction));
+    try std.testing.expect(!Kind.isRegular(Kind.metadata));
+    try std.testing.expect(!Kind.isRegular(Kind.long_form_content));
+}
+
+test "Kind.isJobRequest and isJobResult" {
+    try std.testing.expect(Kind.isJobRequest(5000));
+    try std.testing.expect(Kind.isJobRequest(5500));
+    try std.testing.expect(Kind.isJobRequest(5999));
+    try std.testing.expect(!Kind.isJobRequest(4999));
+    try std.testing.expect(!Kind.isJobRequest(6000));
+
+    try std.testing.expect(Kind.isJobResult(6000));
+    try std.testing.expect(Kind.isJobResult(6500));
+    try std.testing.expect(Kind.isJobResult(6999));
+    try std.testing.expect(!Kind.isJobResult(5999));
+    try std.testing.expect(!Kind.isJobResult(7000));
 }
