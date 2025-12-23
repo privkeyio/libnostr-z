@@ -70,6 +70,70 @@ fn convertBits(input: []const u5, out: []u8) !usize {
     return out_idx;
 }
 
+fn convertBitsToBase5(input: []const u8, out: []u5) usize {
+    var acc: u32 = 0;
+    var bits: u32 = 0;
+    var out_idx: usize = 0;
+
+    for (input) |v| {
+        acc = (acc << 8) | v;
+        bits += 8;
+        while (bits >= 5) {
+            bits -= 5;
+            out[out_idx] = @truncate(acc >> @intCast(bits));
+            out_idx += 1;
+        }
+    }
+    if (bits > 0) {
+        out[out_idx] = @truncate(acc << @intCast(5 - bits));
+        out_idx += 1;
+    }
+    return out_idx;
+}
+
+fn createChecksum(hrp: []const u8, data: []const u5) [6]u5 {
+    var values: [256]u5 = undefined;
+    hrpExpand(hrp, values[0 .. hrp.len * 2 + 1]);
+    const exp_len = hrp.len * 2 + 1;
+    @memcpy(values[exp_len .. exp_len + data.len], data);
+    @memset(values[exp_len + data.len .. exp_len + data.len + 6], 0);
+    const pm = polymod(values[0 .. exp_len + data.len + 6]) ^ 1;
+    var checksum: [6]u5 = undefined;
+    for (0..6) |i| {
+        checksum[i] = @truncate(pm >> @intCast(5 * (5 - i)));
+    }
+    return checksum;
+}
+
+pub fn encode(hrp: []const u8, data: []const u8, out: []u8) !usize {
+    if (hrp.len == 0 or hrp.len > 83) return Error.InvalidLength;
+
+    const data5_len = (data.len * 8 + 4) / 5;
+    if (out.len < hrp.len + 1 + data5_len + 6) return Error.BufferTooSmall;
+
+    var data5: [256]u5 = undefined;
+    const actual_data5_len = convertBitsToBase5(data, &data5);
+
+    const checksum = createChecksum(hrp, data5[0..actual_data5_len]);
+
+    var idx: usize = 0;
+    for (hrp) |c| {
+        out[idx] = std.ascii.toLower(c);
+        idx += 1;
+    }
+    out[idx] = '1';
+    idx += 1;
+    for (data5[0..actual_data5_len]) |v| {
+        out[idx] = charset[v];
+        idx += 1;
+    }
+    for (checksum) |v| {
+        out[idx] = charset[v];
+        idx += 1;
+    }
+    return idx;
+}
+
 pub fn decode(bech32: []const u8, out_hrp: []u8, out_data: []u8) !struct { hrp_len: usize, data_len: usize } {
     if (bech32.len < 8) return Error.InvalidLength;
 
@@ -560,4 +624,23 @@ test "nip19 nprofile vector" {
     try std.testing.expectEqual(@as(usize, 2), decoded.profile.relays.len);
     try std.testing.expectEqualStrings("wss://r.x.com", decoded.profile.relays[0]);
     try std.testing.expectEqualStrings("wss://djbas.sadkb.com", decoded.profile.relays[1]);
+}
+
+test "encode npub roundtrip" {
+    const pubkey = [_]u8{ 0x3b, 0xf0, 0xc6, 0x3f, 0xcb, 0x93, 0x46, 0x34, 0x07, 0xaf, 0x97, 0xa5, 0xe5, 0xee, 0x64, 0xfa, 0x88, 0x3d, 0x10, 0x7e, 0xf9, 0xe5, 0x58, 0x47, 0x2c, 0x4e, 0xb9, 0xaa, 0xae, 0xfa, 0x45, 0x9d };
+    var out: [128]u8 = undefined;
+    const len = try encode("npub", &pubkey, &out);
+    try std.testing.expectEqualStrings("npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6", out[0..len]);
+}
+
+test "encode decode roundtrip" {
+    const original = [_]u8{ 0x01, 0x02, 0x03, 0x04, 0x05 };
+    var encoded: [64]u8 = undefined;
+    const enc_len = try encode("test", &original, &encoded);
+
+    var hrp_buf: [16]u8 = undefined;
+    var data_buf: [32]u8 = undefined;
+    const result = try decode(encoded[0..enc_len], &hrp_buf, &data_buf);
+    try std.testing.expectEqualStrings("test", hrp_buf[0..result.hrp_len]);
+    try std.testing.expectEqualSlices(u8, &original, data_buf[0..result.data_len]);
 }

@@ -18,6 +18,8 @@
 //! - `pow.zig` - NIP-13 Proof of Work
 //! - `nwc.zig` - NIP-47 Nostr Wallet Connect
 //! - `nip46.zig` - NIP-46 Nostr Remote Signing
+//! - `nip49.zig` - NIP-49 Private Key Encryption
+//! - `nip59.zig` - NIP-59 Gift Wrap
 //! - `clink.zig` - CLINK protocol types and error codes
 //! - `joinstr.zig` - NIP Joinstr (Kind 2022) coinjoin pools
 //! - `message_queue.zig` - Thread-safe message queue for multi-relay architecture
@@ -29,6 +31,8 @@ pub const relay_metadata = @import("relay_metadata.zig");
 pub const pow = @import("pow.zig");
 pub const nwc = @import("nwc.zig");
 pub const nip46 = @import("nip46.zig");
+pub const nip49 = @import("nip49.zig");
+pub const nip59 = @import("nip59.zig");
 pub const clink = @import("clink.zig");
 pub const joinstr = @import("joinstr.zig");
 pub const ws = @import("ws/ws.zig");
@@ -101,6 +105,8 @@ test {
     _ = @import("nwc.zig");
     _ = @import("crypto.zig");
     _ = @import("nip46.zig");
+    _ = @import("nip49.zig");
+    _ = @import("nip59.zig");
     _ = @import("clink.zig");
     _ = @import("joinstr.zig");
     _ = @import("ws/ws.zig");
