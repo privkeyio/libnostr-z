@@ -59,6 +59,7 @@ pub const nip59 = @import("nip59.zig");
 pub const nip86 = @import("nip86.zig");
 pub const clink = @import("clink.zig");
 pub const joinstr = @import("joinstr.zig");
+pub const custom_emoji = @import("custom_emoji.zig");
 pub const ws = @import("ws/ws.zig");
 pub const message_queue = @import("message_queue.zig");
 pub const pool = @import("pool.zig");
@@ -150,6 +151,7 @@ test {
     _ = @import("nip86.zig");
     _ = @import("clink.zig");
     _ = @import("joinstr.zig");
+    _ = @import("custom_emoji.zig");
     _ = @import("ws/ws.zig");
     _ = @import("message_queue.zig");
     _ = @import("pool.zig");
