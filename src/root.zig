@@ -17,6 +17,7 @@
 //! - `negentropy.zig` - NIP-77 negentropy protocol
 //! - `pow.zig` - NIP-13 Proof of Work
 //! - `nwc.zig` - NIP-47 Nostr Wallet Connect
+//! - `nip17.zig` - NIP-17 Private Direct Messages
 //! - `nip28.zig` - NIP-28 Public Chat
 //! - `nip43.zig` - NIP-43 Relay Access Metadata
 //! - `nip46.zig` - NIP-46 Nostr Remote Signing
@@ -34,6 +35,7 @@ pub const bech32 = @import("bech32.zig");
 pub const relay_metadata = @import("relay_metadata.zig");
 pub const pow = @import("pow.zig");
 pub const nwc = @import("nwc.zig");
+pub const nip17 = @import("nip17.zig");
 pub const nip28 = @import("nip28.zig");
 pub const nip43 = @import("nip43.zig");
 pub const nip46 = @import("nip46.zig");
@@ -116,6 +118,7 @@ test {
     _ = @import("hex.zig");
     _ = @import("nwc.zig");
     _ = @import("crypto.zig");
+    _ = @import("nip17.zig");
     _ = @import("nip28.zig");
     _ = @import("nip43.zig");
     _ = @import("nip46.zig");
