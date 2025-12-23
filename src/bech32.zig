@@ -657,8 +657,8 @@ test "encode decode roundtrip" {
 
 test "encode rejects oversized data" {
     // Data that would overflow the 256-element internal buffer
-    // (data.len * 8 + 4) / 5 > 256 when data.len > 159
-    var large_data: [160]u8 = undefined;
+    // (data.len * 8 + 4) / 5 > 256 when data.len > 160
+    var large_data: [161]u8 = undefined;
     @memset(&large_data, 0xAB);
     var out: [512]u8 = undefined;
     try std.testing.expectError(Error.InvalidLength, encode("test", &large_data, &out));
