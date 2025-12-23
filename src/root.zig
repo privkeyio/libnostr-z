@@ -17,6 +17,7 @@
 //! - `negentropy.zig` - NIP-77 negentropy protocol
 //! - `pow.zig` - NIP-13 Proof of Work
 //! - `nwc.zig` - NIP-47 Nostr Wallet Connect
+//! - `nip28.zig` - NIP-28 Public Chat
 //! - `nip46.zig` - NIP-46 Nostr Remote Signing
 //! - `clink.zig` - CLINK protocol types and error codes
 //! - `joinstr.zig` - NIP Joinstr (Kind 2022) coinjoin pools
@@ -30,6 +31,7 @@ pub const bech32 = @import("bech32.zig");
 pub const relay_metadata = @import("relay_metadata.zig");
 pub const pow = @import("pow.zig");
 pub const nwc = @import("nwc.zig");
+pub const nip28 = @import("nip28.zig");
 pub const nip46 = @import("nip46.zig");
 pub const nip06 = @import("nip06.zig");
 pub const nip57 = @import("nip57.zig");
@@ -107,6 +109,7 @@ test {
     _ = @import("hex.zig");
     _ = @import("nwc.zig");
     _ = @import("crypto.zig");
+    _ = @import("nip28.zig");
     _ = @import("nip46.zig");
     _ = @import("nip06.zig");
     _ = @import("nip57.zig");
