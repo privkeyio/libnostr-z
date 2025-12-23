@@ -77,7 +77,8 @@ pub fn createRumor(
     tags: []const []const []const u8,
     created_at: i64,
     keypair: *const Keypair,
-) Rumor {
+    allocator: std.mem.Allocator,
+) !Rumor {
     var rumor = Rumor{
         .id = undefined,
         .pubkey = keypair.public_key,
@@ -87,35 +88,37 @@ pub fn createRumor(
         .tags = tags,
     };
 
-    var commitment_buf: [131072]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&commitment_buf);
+    const commitment_buf = try allocator.alloc(u8, 131072);
+    defer allocator.free(commitment_buf);
+
+    var fbs = std.io.fixedBufferStream(commitment_buf);
     const writer = fbs.writer();
 
-    writer.writeAll("[0,\"") catch unreachable;
+    try writer.writeAll("[0,\"");
     var pk_hex: [64]u8 = undefined;
     hex.encode(&keypair.public_key, &pk_hex);
-    writer.writeAll(&pk_hex) catch unreachable;
-    writer.writeAll("\",") catch unreachable;
-    writer.print("{d}", .{created_at}) catch unreachable;
-    writer.writeAll(",") catch unreachable;
-    writer.print("{d}", .{kind}) catch unreachable;
-    writer.writeAll(",[") catch unreachable;
+    try writer.writeAll(&pk_hex);
+    try writer.writeAll("\",");
+    try writer.print("{d}", .{created_at});
+    try writer.writeAll(",");
+    try writer.print("{d}", .{kind});
+    try writer.writeAll(",[");
 
     for (tags, 0..) |tag, i| {
-        if (i > 0) writer.writeByte(',') catch unreachable;
-        writer.writeByte('[') catch unreachable;
+        if (i > 0) try writer.writeByte(',');
+        try writer.writeByte('[');
         for (tag, 0..) |elem, j| {
-            if (j > 0) writer.writeByte(',') catch unreachable;
-            writer.writeByte('"') catch unreachable;
-            utils.writeJsonEscaped(writer, elem) catch unreachable;
-            writer.writeByte('"') catch unreachable;
+            if (j > 0) try writer.writeByte(',');
+            try writer.writeByte('"');
+            try utils.writeJsonEscaped(writer, elem);
+            try writer.writeByte('"');
         }
-        writer.writeByte(']') catch unreachable;
+        try writer.writeByte(']');
     }
 
-    writer.writeAll("],\"") catch unreachable;
-    utils.writeJsonEscaped(writer, content) catch unreachable;
-    writer.writeAll("\"]") catch unreachable;
+    try writer.writeAll("],\"");
+    try utils.writeJsonEscaped(writer, content);
+    try writer.writeAll("\"]");
 
     const commitment = fbs.getWritten();
     std.crypto.hash.sha2.Sha256.hash(commitment, &rumor.id, .{});
@@ -304,8 +307,10 @@ pub fn wrap(
     out_buf: []u8,
     allocator: std.mem.Allocator,
 ) !WrapResult {
-    var seal_buf: [131072]u8 = undefined;
-    const seal_json = try createSeal(rumor, sender_keypair, recipient_pubkey, &seal_buf, allocator);
+    const seal_buf = try allocator.alloc(u8, 131072);
+    defer allocator.free(seal_buf);
+
+    const seal_json = try createSeal(rumor, sender_keypair, recipient_pubkey, seal_buf, allocator);
     return try createGiftWrap(seal_json, recipient_pubkey, out_buf, allocator);
 }
 
@@ -391,7 +396,10 @@ fn parseKind(json: []const u8) ?i32 {
     if (end < json.len and json[end] == '-') end += 1;
     while (end < json.len and json[end] >= '0' and json[end] <= '9') : (end += 1) {}
     if (end == start) return null;
-    return std.fmt.parseInt(i32, json[start..end], 10) catch return null;
+    const value = std.fmt.parseInt(i32, json[start..end], 10) catch return null;
+    // NIP-01 valid range: [0, 65535]
+    if (value < 0 or value > 65535) return null;
+    return value;
 }
 
 pub fn parseRumorContent(rumor_json: []const u8) ?[]const u8 {
@@ -410,14 +418,16 @@ pub fn parseRumorPubkey(rumor_json: []const u8, out: *[32]u8) bool {
 
 test "createRumor calculates correct id" {
     try crypto.init();
+    const allocator = std.testing.allocator;
 
     const keypair = Keypair.generate();
-    const rumor = createRumor(
+    const rumor = try createRumor(
         1,
         "test content",
         &[_][]const []const u8{},
         1700000000,
         &keypair,
+        allocator,
     );
 
     try std.testing.expect(!std.mem.eql(u8, &rumor.id, &[_]u8{0} ** 32));
@@ -428,14 +438,16 @@ test "createRumor calculates correct id" {
 
 test "rumor serialization" {
     try crypto.init();
+    const allocator = std.testing.allocator;
 
     const keypair = Keypair.generate();
-    const rumor = createRumor(
+    const rumor = try createRumor(
         1,
         "Hello, World!",
         &[_][]const []const u8{},
         1700000000,
         &keypair,
+        allocator,
     );
 
     var buf: [4096]u8 = undefined;
@@ -454,12 +466,13 @@ test "createSeal produces kind 13 event" {
     const sender = Keypair.generate();
     const recipient = Keypair.generate();
 
-    const rumor = createRumor(
+    const rumor = try createRumor(
         1,
         "Secret message",
         &[_][]const []const u8{},
         1700000000,
         &sender,
+        allocator,
     );
 
     var seal_buf: [65536]u8 = undefined;
@@ -478,12 +491,13 @@ test "createGiftWrap produces kind 1059 event" {
     const sender = Keypair.generate();
     const recipient = Keypair.generate();
 
-    const rumor = createRumor(
+    const rumor = try createRumor(
         1,
         "Secret message",
         &[_][]const []const u8{},
         1700000000,
         &sender,
+        allocator,
     );
 
     var seal_buf: [65536]u8 = undefined;
@@ -505,12 +519,13 @@ test "wrap and unwrap roundtrip" {
     const sender = Keypair.generate();
     const recipient = Keypair.generate();
 
-    const rumor = createRumor(
+    const rumor = try createRumor(
         1,
         "Are you going to the party tonight?",
         &[_][]const []const u8{},
         1700000000,
         &sender,
+        allocator,
     );
 
     var wrap_buf: [131072]u8 = undefined;
@@ -558,7 +573,7 @@ test "timestamps are randomized in past" {
     const recipient = Keypair.generate();
 
     const now = std.time.timestamp();
-    const rumor = createRumor(1, "test", &[_][]const []const u8{}, now, &sender);
+    const rumor = try createRumor(1, "test", &[_][]const []const u8{}, now, &sender, allocator);
 
     var seal_buf: [65536]u8 = undefined;
     const seal_json = try createSeal(&rumor, &sender, &recipient.public_key, &seal_buf, allocator);
@@ -587,12 +602,13 @@ test "gift wrap with tags on rumor" {
     const p_tag = [_][]const u8{ "p", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
     const tags = [_][]const []const u8{&p_tag};
 
-    const rumor = createRumor(
+    const rumor = try createRumor(
         1,
         "tagged message",
         &tags,
         1700000000,
         &sender,
+        allocator,
     );
 
     var wrap_buf: [131072]u8 = undefined;
@@ -603,4 +619,19 @@ test "gift wrap with tags on rumor" {
 
     try std.testing.expect(std.mem.indexOf(u8, unwrapped.rumor_json, "\"p\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, unwrapped.rumor_json, "aaaa") != null);
+}
+
+test "parseKind rejects out of range values" {
+    // Valid kinds (0 to 65535)
+    try std.testing.expectEqual(@as(?i32, 0), parseKind("{\"kind\":0}"));
+    try std.testing.expectEqual(@as(?i32, 1), parseKind("{\"kind\":1}"));
+    try std.testing.expectEqual(@as(?i32, 65535), parseKind("{\"kind\":65535}"));
+
+    // Invalid: negative values
+    try std.testing.expectEqual(@as(?i32, null), parseKind("{\"kind\":-1}"));
+    try std.testing.expectEqual(@as(?i32, null), parseKind("{\"kind\":-100}"));
+
+    // Invalid: values > 65535
+    try std.testing.expectEqual(@as(?i32, null), parseKind("{\"kind\":65536}"));
+    try std.testing.expectEqual(@as(?i32, null), parseKind("{\"kind\":100000}"));
 }
