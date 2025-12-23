@@ -111,6 +111,11 @@ pub fn encode(hrp: []const u8, data: []const u8, out: []u8) !usize {
     const data5_len = (data.len * 8 + 4) / 5;
     if (out.len < hrp.len + 1 + data5_len + 6) return Error.BufferTooSmall;
 
+    // Check buffer limits: data5 must fit in 256 elements, and createChecksum
+    // needs hrp.len * 2 + 1 + data5_len + 6 elements in its internal buffer
+    if (data5_len > 256) return Error.InvalidLength;
+    if (hrp.len * 2 + 1 + data5_len + 6 > 256) return Error.InvalidLength;
+
     var data5: [256]u5 = undefined;
     const actual_data5_len = convertBitsToBase5(data, &data5);
 
@@ -156,6 +161,11 @@ pub fn decode(bech32: []const u8, out_hrp: []u8, out_data: []u8) !struct { hrp_l
     }
 
     const data_part = bech32[sep_pos + 1 ..];
+    // Check buffer limits: data5 must fit in 256 elements, and verifyChecksum
+    // needs hrp.len * 2 + 1 + data_part.len elements in its internal buffer
+    if (data_part.len > 256) return Error.InvalidLength;
+    if (hrp.len * 2 + 1 + data_part.len > 256) return Error.InvalidLength;
+
     var data5: [256]u5 = undefined;
     for (data_part, 0..) |c, i| {
         data5[i] = charValue(std.ascii.toLower(c)) orelse return Error.InvalidCharacter;
@@ -643,4 +653,26 @@ test "encode decode roundtrip" {
     const result = try decode(encoded[0..enc_len], &hrp_buf, &data_buf);
     try std.testing.expectEqualStrings("test", hrp_buf[0..result.hrp_len]);
     try std.testing.expectEqualSlices(u8, &original, data_buf[0..result.data_len]);
+}
+
+test "encode rejects oversized data" {
+    // Data that would overflow the 256-element internal buffer
+    // (data.len * 8 + 4) / 5 > 256 when data.len > 159
+    var large_data: [160]u8 = undefined;
+    @memset(&large_data, 0xAB);
+    var out: [512]u8 = undefined;
+    try std.testing.expectError(Error.InvalidLength, encode("test", &large_data, &out));
+}
+
+test "encode rejects data too large for checksum buffer" {
+    // Even with smaller data, a long HRP can overflow createChecksum's buffer
+    // hrp.len * 2 + 1 + data5_len + 6 > 256
+    // With hrp.len = 83 (max): 83*2 + 1 + data5_len + 6 = 173 + data5_len
+    // So data5_len must be <= 83, meaning data.len <= 51
+    var data: [52]u8 = undefined;
+    @memset(&data, 0xAB);
+    var out: [512]u8 = undefined;
+    // Use a long HRP (83 chars is the max allowed)
+    const long_hrp = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcde";
+    try std.testing.expectError(Error.InvalidLength, encode(long_hrp, &data, &out));
 }
