@@ -12,6 +12,7 @@ A Zig library for the Nostr protocol.
 | [01](https://github.com/nostr-protocol/nips/blob/master/01.md) | Basic Protocol | Events, filters, client/relay messages |
 | [09](https://github.com/nostr-protocol/nips/blob/master/09.md) | Event Deletion | `isDeletion`, `getDeletionIds` |
 | [16](https://github.com/nostr-protocol/nips/blob/master/16.md) | Replaceable Events | `Replaceable`, `kindType` (includes addressable) |
+| [18](https://github.com/nostr-protocol/nips/blob/master/18.md) | Reposts | `nip18` module |
 | [19](https://github.com/nostr-protocol/nips/blob/master/19.md) | bech32 Entities | npub, nsec, nprofile, nevent, naddr |
 | [40](https://github.com/nostr-protocol/nips/blob/master/40.md) | Expiration Timestamp | `isExpired` |
 | [42](https://github.com/nostr-protocol/nips/blob/master/42.md) | Authentication | `Auth` utilities, AUTH message |
