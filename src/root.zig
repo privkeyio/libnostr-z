@@ -19,19 +19,20 @@
 //! - `nwc.zig` - NIP-47 Nostr Wallet Connect
 //! - `nip17.zig` - NIP-17 Private Direct Messages
 //! - `nip21.zig` - NIP-21 nostr: URI scheme
+//! - `nip25.zig` - NIP-25 Reactions
+//! - `nip27.zig` - NIP-27 Text Note References
 //! - `nip28.zig` - NIP-28 Public Chat
 //! - `nip43.zig` - NIP-43 Relay Access Metadata
 //! - `nip46.zig` - NIP-46 Nostr Remote Signing
 //! - `nip05.zig` - NIP-05 DNS-based internet identifier verification
 //! - `nip10.zig` - NIP-10 Text Notes and Threads
+//! - `nip59.zig` - NIP-59 Gift Wrap
 //! - `clink.zig` - CLINK protocol types and error codes
 //! - `joinstr.zig` - NIP Joinstr (Kind 2022) coinjoin pools
 //! - `message_queue.zig` - Thread-safe message queue for multi-relay architecture
 //! - `pool.zig` - Multi-relay pool with event deduplication and parallel queries
 //! - `relay.zig` - High-level relay abstraction with connection management
 //! - `signer.zig` - Abstract signer interface for NIP-07/NIP-46/hardware wallets
-//! - `nip27.zig` - NIP-27 Text Note References
-//! - `nip59.zig` - NIP-59 Gift Wrap
 
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
@@ -41,6 +42,8 @@ pub const pow = @import("pow.zig");
 pub const nwc = @import("nwc.zig");
 pub const nip17 = @import("nip17.zig");
 pub const nip21 = @import("nip21.zig");
+pub const nip25 = @import("nip25.zig");
+pub const nip27 = @import("nip27.zig");
 pub const nip28 = @import("nip28.zig");
 pub const nip43 = @import("nip43.zig");
 pub const nip46 = @import("nip46.zig");
@@ -58,7 +61,6 @@ pub const message_queue = @import("message_queue.zig");
 pub const pool = @import("pool.zig");
 pub const relay = @import("relay.zig");
 pub const signer = @import("signer.zig");
-pub const nip27 = @import("nip27.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -129,6 +131,8 @@ test {
     _ = @import("crypto.zig");
     _ = @import("nip17.zig");
     _ = @import("nip21.zig");
+    _ = @import("nip25.zig");
+    _ = @import("nip27.zig");
     _ = @import("nip28.zig");
     _ = @import("nip43.zig");
     _ = @import("nip46.zig");
@@ -146,5 +150,4 @@ test {
     _ = @import("pool.zig");
     _ = @import("relay.zig");
     _ = @import("signer.zig");
-    _ = @import("nip27.zig");
 }
