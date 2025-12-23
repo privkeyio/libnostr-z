@@ -31,6 +31,7 @@ pub const nwc = @import("nwc.zig");
 pub const nip46 = @import("nip46.zig");
 pub const clink = @import("clink.zig");
 pub const joinstr = @import("joinstr.zig");
+pub const custom_emoji = @import("custom_emoji.zig");
 pub const ws = @import("ws/ws.zig");
 pub const message_queue = @import("message_queue.zig");
 
@@ -103,6 +104,7 @@ test {
     _ = @import("nip46.zig");
     _ = @import("clink.zig");
     _ = @import("joinstr.zig");
+    _ = @import("custom_emoji.zig");
     _ = @import("ws/ws.zig");
     _ = @import("message_queue.zig");
 }
