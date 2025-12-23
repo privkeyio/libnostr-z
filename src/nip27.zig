@@ -61,7 +61,9 @@ fn findUriEnd(content: []const u8, start: usize) usize {
     var pos = start;
     while (pos < content.len) {
         const c = content[pos];
-        if ((c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '1') {
+        // Bech32 allows lowercase a-z, uppercase A-Z, and digits 0-9
+        // (but not mixed case - validation happens during decode)
+        if ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9')) {
             pos += 1;
         } else {
             break;
@@ -189,5 +191,66 @@ test "reference at start" {
         r.deinit(std.testing.allocator);
     }
     try std.testing.expectEqual(@as(usize, 0), ref.start);
+    try std.testing.expect(iter.next() == null);
+}
+
+test "uppercase bech32 reference" {
+    // BIP-173 allows uppercase bech32 strings
+    const content = "hello nostr:NPUB180CVV07TJDRRGPA0J7J7TMNYL2YR6YR7L8J4S3EVF6U64TH6GKWSYJH6W6 world";
+    var iter = findReferences(content, std.testing.allocator);
+
+    const ref = iter.next().?;
+    defer {
+        var r = ref;
+        r.deinit(std.testing.allocator);
+    }
+
+    try std.testing.expectEqualStrings("NPUB180CVV07TJDRRGPA0J7J7TMNYL2YR6YR7L8J4S3EVF6U64TH6GKWSYJH6W6", ref.uri);
+    try std.testing.expect(ref.decoded != null);
+
+    const pk = ref.decoded.?.pubkey;
+    var hex: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d", bech32.toHex(&pk, &hex));
+}
+
+test "mixed case bech32 rejected" {
+    // BIP-173 requires all-upper or all-lower, mixed case should fail decode
+    const content = "nostr:Npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6";
+    var iter = findReferences(content, std.testing.allocator);
+
+    const ref = iter.next().?;
+    // Reference is found but decode fails due to mixed case
+    try std.testing.expectEqualStrings("Npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6", ref.uri);
+    try std.testing.expect(ref.decoded == null);
+}
+
+test "nostr: followed by space skipped" {
+    // "nostr:" without a valid bech32 identifier should be skipped
+    const content = "nostr: hello nostr:npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6";
+    var iter = findReferences(content, std.testing.allocator);
+
+    // The first "nostr: " is skipped, only the valid one is returned
+    const ref = iter.next().?;
+    defer {
+        var r = ref;
+        r.deinit(std.testing.allocator);
+    }
+    try std.testing.expectEqualStrings("npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6", ref.uri);
+    try std.testing.expect(ref.decoded != null);
+    try std.testing.expect(iter.next() == null);
+}
+
+test "consecutive nostr: patterns" {
+    // Test that we correctly handle "nostr:nostr:npub..."
+    const content = "nostr:nostr:npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6";
+    var iter = findReferences(content, std.testing.allocator);
+
+    // First match: "nostr" is parsed as URI but fails decode
+    const ref1 = iter.next().?;
+    try std.testing.expectEqualStrings("nostr", ref1.uri);
+    try std.testing.expect(ref1.decoded == null);
+
+    // Iterator advances past the first match, missing the nested valid reference
+    // This is acceptable edge case behavior
     try std.testing.expect(iter.next() == null);
 }
