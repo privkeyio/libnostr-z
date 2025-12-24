@@ -1,3 +1,14 @@
+//! NIP-04: Encrypted Direct Message
+//!
+//! This module implements NIP-04 encrypted direct messages using AES-256-CBC.
+//! The shared secret is derived using ECDH with secp256k1.
+//!
+//! **Warning**: This NIP is deprecated in favor of NIP-17 which provides better
+//! metadata protection. NIP-04 leaks metadata and should only be used with
+//! relays that implement AUTH to restrict who can fetch kind:4 events.
+//!
+//! Format: `<base64_ciphertext>?iv=<base64_iv>`
+
 const std = @import("std");
 const Aes256 = std.crypto.core.aes.Aes256;
 
@@ -165,6 +176,7 @@ pub fn parsePayload(payload: []const u8) ?struct { ciphertext: []const u8, iv: [
 }
 
 const crypto = @import("crypto.zig");
+const hex = @import("hex.zig");
 
 test "encrypt and decrypt roundtrip" {
     try crypto.init();
@@ -292,4 +304,49 @@ test "isDM" {
 
 test "DM_KIND constant" {
     try std.testing.expectEqual(@as(i32, 4), DM_KIND);
+}
+
+test "interoperability with go-nostr test vector" {
+    try crypto.init();
+    defer crypto.cleanup();
+
+    const allocator = std.testing.allocator;
+
+    // Test vectors from go-nostr (via nostr-tools test suite)
+    var sk1: [32]u8 = undefined;
+    var sk2: [32]u8 = undefined;
+    try hex.decode("91ba716fa9e7ea2fcbad360cf4f8e0d312f73984da63d90f524ad61a6a1e7dbe", &sk1);
+    try hex.decode("96f6fa197aa07477ab88f6981118466ae3a982faab8ad5db9d5426870c73d220", &sk2);
+
+    var pk1: [32]u8 = undefined;
+    try crypto.getPublicKey(&sk1, &pk1);
+
+    // Ciphertext from go-nostr, decrypts to "nanana"
+    const ciphertext = "zJxfaJ32rN5Dg1ODjOlEew==?iv=EV5bUjcc4OX2Km/zPp4ndQ==";
+    const decrypted = try decrypt(&sk2, &pk1, ciphertext, allocator);
+    defer allocator.free(decrypted);
+
+    try std.testing.expectEqualStrings("nanana", decrypted);
+}
+
+test "interoperability with go-nostr large payload" {
+    try crypto.init();
+    defer crypto.cleanup();
+
+    const allocator = std.testing.allocator;
+
+    var sk1: [32]u8 = undefined;
+    var sk2: [32]u8 = undefined;
+    try hex.decode("91ba716fa9e7ea2fcbad360cf4f8e0d312f73984da63d90f524ad61a6a1e7dbe", &sk1);
+    try hex.decode("96f6fa197aa07477ab88f6981118466ae3a982faab8ad5db9d5426870c73d220", &sk2);
+
+    var pk1: [32]u8 = undefined;
+    try crypto.getPublicKey(&sk1, &pk1);
+
+    // Large ciphertext from go-nostr, decrypts to 800 'z' characters
+    const ciphertext = "6f8dMstm+udOu7yipSn33orTmwQpWbtfuY95NH+eTU1kArysWJIDkYgI2D25EAGIDJsNd45jOJ2NbVOhFiL3ZP/NWsTwXokk34iyHyA/lkjzugQ1bHXoMD1fP/Ay4hB4al1NHb8HXHKZaxPrErwdRDb8qa/I6dXb/1xxyVvNQBHHvmsM5yIFaPwnCN1DZqXf2KbTA/Ekz7Hy+7R+Sy3TXLQDFpWYqykppkXc7Fs0qSuPRyxz5+anuN0dxZa9GTwTEnBrZPbthKkNRrvZMdTGJ6WumOh9aUq8OJJWy9aOgsXvs7qjN1UqcCqQqYaVnEOhCaqWNDsVtsFrVDj+SaLIBvCiomwF4C4nIgngJ5I69tx0UNI0q+ZnvOGQZ7m1PpW2NYP7Yw43HJNdeUEQAmdCPnh/PJwzLTnIxHmQU7n7SPlMdV0SFa6H8y2HHvex697GAkyE5t8c2uO24OnqIwF1tR3blIqXzTSRl0GA6QvrSj2p4UtnWjvF7xT7RiIEyTtgU/AsihTrXyXzWWZaIBJogpgw6erlZqWjCH7sZy/WoGYEiblobOAqMYxax6vRbeuGtoYksr/myX+x9rfLrYuoDRTw4woXOLmMrrj+Mf0TbAgc3SjdkqdsPU1553rlSqIEZXuFgoWmxvVQDtekgTYyS97G81TDSK9nTJT5ilku8NVq2LgtBXGwsNIw/xekcOUzJke3kpnFPutNaexR1VF3ohIuqRKYRGcd8ADJP2lfwMcaGRiplAmFoaVS1YUhQwYFNq9rMLf7YauRGV4BJg/t9srdGxf5RoKCvRo+XM/nLxxysTR9MVaEP/3lDqjwChMxs+eWfLHE5vRWV8hUEqdrWNZV29gsx5nQpzJ4PARGZVu310pQzc6JAlc2XAhhFk6RamkYJnmCSMnb/RblzIATBi2kNrCVAlaXIon188inB62rEpZGPkRIP7PUfu27S/elLQHBHeGDsxOXsBRo1gl3te+raoBHsxo6zvRnYbwdAQa5taDE63eh+fT6kFI+xYmXNAQkU8Dp0MVhEh4JQI06Ni/AKrvYpC95TXXIphZcF+/Pv/vaGkhG2X9S3uhugwWK?iv=2vWkOQQi0WynNJz/aZ4k2g==";
+    const decrypted = try decrypt(&sk2, &pk1, ciphertext, allocator);
+    defer allocator.free(decrypted);
+
+    try std.testing.expectEqualStrings("z" ** 800, decrypted);
 }
