@@ -39,10 +39,7 @@ pub const RelayMessage = struct {
 
     pub fn deinit(self: *RelayMessage) void {
         if (self.subscription_id) |s| self.allocator.free(s);
-        if (self.event) |*e| {
-            var ev = e.*;
-            ev.deinit();
-        }
+        if (self.event) |*e| e.deinit();
         if (self.message) |m| self.allocator.free(m);
         self.allocator.free(self.raw);
     }
@@ -58,10 +55,7 @@ pub const Subscription = struct {
 
     pub fn deinit(self: *Subscription) void {
         self.allocator.free(self.id);
-        for (self.filters) |*f| {
-            var filter = f.*;
-            filter.deinit();
-        }
+        for (self.filters) |*f| f.deinit();
         self.allocator.free(self.filters);
     }
 };
@@ -115,10 +109,7 @@ pub const Relay = struct {
 
         self.closeInternal();
         var iter = self.subscriptions.iterator();
-        while (iter.next()) |entry| {
-            var sub = entry.value_ptr.*;
-            sub.deinit();
-        }
+        while (iter.next()) |entry| entry.value_ptr.deinit();
         self.subscriptions.deinit();
         self.allocator.free(self.url);
     }
@@ -132,13 +123,18 @@ pub const Relay = struct {
         self.state = .connecting;
         errdefer self.state = .disconnected;
 
-        self.client = ws.Client.connect(self.allocator, self.url) catch |err| {
+        var client = ws.Client.connect(self.allocator, self.url) catch |err| {
             self.state = .disconnected;
             return switch (err) {
                 else => RelayError.ConnectionFailed,
             };
         };
 
+        if (self.config.read_timeout_ms > 0) {
+            client.setReadTimeout(self.config.read_timeout_ms);
+        }
+
+        self.client = client;
         self.state = .connected;
         self.reconnect_attempts = 0;
         self.last_message_time = std.time.timestamp();
@@ -161,40 +157,45 @@ pub const Relay = struct {
     }
 
     pub fn reconnect(self: *Self) !void {
-        self.mutex.lock();
-        const config = self.config;
-        const current_attempts = self.reconnect_attempts;
-        self.mutex.unlock();
+        while (true) {
+            self.mutex.lock();
+            const config = self.config;
+            const current_attempts = self.reconnect_attempts;
 
-        if (!config.auto_reconnect) return RelayError.ConnectionFailed;
-        if (config.reconnect_max_attempts > 0 and current_attempts >= config.reconnect_max_attempts) {
-            return RelayError.ConnectionFailed;
-        }
+            if (!config.auto_reconnect) {
+                self.mutex.unlock();
+                return RelayError.ConnectionFailed;
+            }
+            if (config.reconnect_max_attempts > 0 and current_attempts >= config.reconnect_max_attempts) {
+                self.mutex.unlock();
+                return RelayError.ConnectionFailed;
+            }
 
-        self.mutex.lock();
-        self.state = .reconnecting;
-        self.reconnect_attempts += 1;
-        if (self.client) |*c| {
-            c.close();
-            self.client = null;
-        }
-        self.mutex.unlock();
-
-        const delay = calculateBackoff(config.reconnect_base_delay_ms, config.reconnect_max_delay_ms, current_attempts);
-        std.time.sleep(delay * std.time.ns_per_ms);
-
-        self.mutex.lock();
-        if (self.state != .reconnecting) {
+            self.state = .reconnecting;
+            self.reconnect_attempts += 1;
+            if (self.client) |*c| {
+                c.close();
+                self.client = null;
+            }
             self.mutex.unlock();
+
+            const delay = calculateBackoff(config.reconnect_base_delay_ms, config.reconnect_max_delay_ms, current_attempts);
+            std.time.sleep(delay * std.time.ns_per_ms);
+
+            self.mutex.lock();
+            if (self.state != .reconnecting) {
+                self.mutex.unlock();
+                return;
+            }
+            self.mutex.unlock();
+
+            self.connect() catch {
+                continue;
+            };
+
+            self.resubscribeAll();
             return;
         }
-        self.mutex.unlock();
-
-        self.connect() catch {
-            return self.reconnect();
-        };
-
-        self.resubscribeAll();
     }
 
     fn resubscribeAll(self: *Self) void {
@@ -227,12 +228,7 @@ pub const Relay = struct {
         var filters_copy = try self.allocator.alloc(Filter, filters.len);
         errdefer self.allocator.free(filters_copy);
         var copied: usize = 0;
-        errdefer {
-            for (filters_copy[0..copied]) |*f| {
-                var filter = f.*;
-                filter.deinit();
-            }
-        }
+        errdefer for (filters_copy[0..copied]) |*f| f.deinit();
 
         for (filters, 0..) |f, i| {
             filters_copy[i] = try f.clone(self.allocator);
@@ -295,19 +291,25 @@ pub const Relay = struct {
 
     pub fn receive(self: *Self) !?RelayMessage {
         self.mutex.lock();
-        if (self.state != .connected or self.client == null) {
+        if (self.state != .connected) {
             self.mutex.unlock();
             return RelayError.NotConnected;
         }
-        const client_ptr = &self.client.?;
+        var client = self.client orelse {
+            self.mutex.unlock();
+            return RelayError.NotConnected;
+        };
         self.mutex.unlock();
 
-        const ws_msg = client_ptr.recvMessage() catch |err| {
+        const ws_msg = client.recvMessage() catch |err| {
             switch (err) {
                 error.EndOfStream, error.ConnectionResetByPeer => {
                     self.mutex.lock();
+                    if (self.client) |*c| {
+                        c.close();
+                        self.client = null;
+                    }
                     self.state = .disconnected;
-                    self.client = null;
                     self.mutex.unlock();
                     if (self.config.auto_reconnect) {
                         self.reconnect() catch {};
@@ -348,10 +350,7 @@ pub const Relay = struct {
         errdefer if (sub_id) |s| self.allocator.free(s);
 
         var event_obj: ?Event = null;
-        errdefer if (event_obj) |*e| {
-            var ev = e.*;
-            ev.deinit();
-        };
+        errdefer if (event_obj) |*e| e.deinit();
 
         var msg_text: ?[]const u8 = null;
         errdefer if (msg_text) |m| self.allocator.free(m);
@@ -650,6 +649,7 @@ test "RelayConfig custom values" {
     try std.testing.expect(!config.auto_reconnect);
     try std.testing.expectEqual(@as(u32, 500), config.reconnect_base_delay_ms);
     try std.testing.expectEqual(@as(u32, 5), config.reconnect_max_attempts);
+    try std.testing.expectEqual(@as(u32, 30000), config.read_timeout_ms);
     try std.testing.expectEqual(@as(u16, 50), config.max_subscriptions);
 }
 
