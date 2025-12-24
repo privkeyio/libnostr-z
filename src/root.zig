@@ -36,8 +36,10 @@
 //! - `relay.zig` - High-level relay abstraction with connection management
 //! - `signer.zig` - Abstract signer interface for NIP-07/NIP-46/hardware wallets
 //! - `nip11.zig` - NIP-11 Relay Information Document
+//! - `http_auth.zig` - NIP-98 HTTP Auth
 
 pub const crypto = @import("crypto.zig");
+pub const http_auth = @import("http_auth.zig");
 pub const negentropy = @import("negentropy.zig");
 pub const bech32 = @import("bech32.zig");
 pub const relay_metadata = @import("relay_metadata.zig");
@@ -110,6 +112,7 @@ pub const EventBuilder = builder_mod.EventBuilder;
 pub const Auth = auth_mod.Auth;
 pub const Replaceable = replaceable_mod.Replaceable;
 pub const IndexKeys = index_keys_mod.IndexKeys;
+pub const HttpAuth = http_auth.HttpAuth;
 
 pub const init = event_mod.init;
 pub const cleanup = event_mod.cleanup;
@@ -119,6 +122,7 @@ pub const utils = @import("utils.zig");
 pub const hex = @import("hex.zig");
 
 test {
+    _ = @import("http_auth.zig");
     _ = @import("tags.zig");
     _ = @import("event.zig");
     _ = @import("filter.zig");
