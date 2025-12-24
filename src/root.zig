@@ -33,6 +33,7 @@ pub const clink = @import("clink.zig");
 pub const joinstr = @import("joinstr.zig");
 pub const ws = @import("ws/ws.zig");
 pub const message_queue = @import("message_queue.zig");
+pub const badges = @import("badges.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -105,4 +106,5 @@ test {
     _ = @import("joinstr.zig");
     _ = @import("ws/ws.zig");
     _ = @import("message_queue.zig");
+    _ = @import("badges.zig");
 }
