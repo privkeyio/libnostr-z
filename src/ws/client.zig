@@ -63,6 +63,16 @@ pub const Client = struct {
 
     const Self = @This();
 
+    pub fn setReadTimeout(self: *Self, timeout_ms: u32) void {
+        const seconds = timeout_ms / 1000;
+        const microseconds = (timeout_ms % 1000) * 1000;
+        const timeval = std.posix.timeval{
+            .sec = @intCast(seconds),
+            .usec = @intCast(microseconds),
+        };
+        std.posix.setsockopt(self.tcp_stream.handle, std.posix.SO.RCVTIMEO, std.mem.asBytes(&timeval)) catch {};
+    }
+
     pub fn connect(allocator: Allocator, uri: []const u8) !Self {
         const parsed = try Uri.parse(uri);
 
