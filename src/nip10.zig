@@ -96,7 +96,10 @@ pub const Nip10 = struct {
         if (tags.len == 0) return result;
 
         if (tags.len == 1) {
+            // Per NIP-10: "One 'e' tag: The id of the event to which this event is a reply."
+            // A single e-tag is both the root and the reply target (direct reply to root).
             result.root = tags[0];
+            result.reply = tags[0];
             return result;
         }
 
@@ -219,7 +222,9 @@ pub const Nip10 = struct {
             }
         }
 
-        if (e_tag_count >= 2) return last_e_tag;
+        // For positional tags: 1 e-tag is a reply to root, 2+ e-tags means last is reply
+        // Per NIP-10: "One 'e' tag: The id of the event to which this event is a reply."
+        if (e_tag_count >= 1) return last_e_tag;
         return null;
     }
 
@@ -429,12 +434,14 @@ test "getReply with positional tags (deprecated)" {
     try std.testing.expectEqual(@as(u8, 0xbb), reply[0]);
 }
 
-test "getReply returns null for single e-tag" {
+test "getReply returns same event for single positional e-tag" {
+    // Per NIP-10: "One 'e' tag: The id of the event to which this event is a reply."
     const json =
         \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["e","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]]}
     ;
 
-    try std.testing.expect(Nip10.getReply(json) == null);
+    const reply = Nip10.getReply(json).?;
+    try std.testing.expectEqual(@as(u8, 0xaa), reply[0]);
 }
 
 test "isReply" {
@@ -490,6 +497,20 @@ test "extractThreadInfo with positional tags (deprecated)" {
     try std.testing.expectEqual(@as(u8, 0xcc), info.reply.?.event_id[0]);
     try std.testing.expectEqual(@as(usize, 1), info.mentions.len);
     try std.testing.expectEqual(@as(u8, 0xbb), info.mentions[0].event_id[0]);
+}
+
+test "extractThreadInfo with single positional e-tag" {
+    // Per NIP-10: A single positional e-tag is both root and reply target (direct reply to root)
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["e","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]]}
+    ;
+
+    var info = try Nip10.extractThreadInfo(json, std.testing.allocator);
+    defer info.deinit();
+
+    try std.testing.expectEqual(@as(u8, 0xaa), info.root.?.event_id[0]);
+    try std.testing.expectEqual(@as(u8, 0xaa), info.reply.?.event_id[0]);
+    try std.testing.expectEqual(@as(usize, 0), info.mentions.len);
 }
 
 test "extractThreadInfo with quotes" {
