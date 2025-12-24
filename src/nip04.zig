@@ -1,3 +1,8 @@
+//! NIP-04: Encrypted Direct Message (Legacy)
+//!
+//! **Warning**: NIP-04 is deprecated. Use NIP-44 encryption with NIP-17 for new
+//! implementations. NIP-04 leaks metadata and has weaker cryptographic properties.
+
 const std = @import("std");
 const Aes256 = std.crypto.core.aes.Aes256;
 
@@ -121,7 +126,6 @@ pub fn decrypt(
 
     if (iv_b64.len == 0 or ct_b64.len == 0) return Nip04Error.InvalidPayload;
 
-    // Validate IV size before decoding to prevent partial writes or buffer overflow
     const expected_iv_size = std.base64.standard.Decoder.calcSizeForSlice(iv_b64) catch return Nip04Error.InvalidPayload;
     if (expected_iv_size != BLOCK_SIZE) return Nip04Error.InvalidPayload;
 
@@ -165,6 +169,7 @@ pub fn parsePayload(payload: []const u8) ?struct { ciphertext: []const u8, iv: [
 }
 
 const crypto = @import("crypto.zig");
+const hex = @import("hex.zig");
 
 test "encrypt and decrypt roundtrip" {
     try crypto.init();
@@ -267,9 +272,7 @@ test "decrypt invalid payload" {
     try std.testing.expectError(Nip04Error.InvalidPayload, decrypt(&sk, &pk, "invalid", allocator));
     try std.testing.expectError(Nip04Error.InvalidPayload, decrypt(&sk, &pk, "?iv=", allocator));
     try std.testing.expectError(Nip04Error.InvalidPayload, decrypt(&sk, &pk, "data?iv=", allocator));
-    // Short IV (3 bytes instead of 16)
     try std.testing.expectError(Nip04Error.InvalidPayload, decrypt(&sk, &pk, "AAAAAAAAAAAAAAAAAAAAAA==?iv=AAAA", allocator));
-    // Long IV (24 bytes instead of 16)
     try std.testing.expectError(Nip04Error.InvalidPayload, decrypt(&sk, &pk, "AAAAAAAAAAAAAAAAAAAAAA==?iv=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", allocator));
 }
 
@@ -292,4 +295,46 @@ test "isDM" {
 
 test "DM_KIND constant" {
     try std.testing.expectEqual(@as(i32, 4), DM_KIND);
+}
+
+test "interoperability with go-nostr test vector" {
+    try crypto.init();
+    defer crypto.cleanup();
+
+    const allocator = std.testing.allocator;
+
+    var sk1: [32]u8 = undefined;
+    var sk2: [32]u8 = undefined;
+    try hex.decode("91ba716fa9e7ea2fcbad360cf4f8e0d312f73984da63d90f524ad61a6a1e7dbe", &sk1);
+    try hex.decode("96f6fa197aa07477ab88f6981118466ae3a982faab8ad5db9d5426870c73d220", &sk2);
+
+    var pk1: [32]u8 = undefined;
+    try crypto.getPublicKey(&sk1, &pk1);
+
+    const ciphertext = "zJxfaJ32rN5Dg1ODjOlEew==?iv=EV5bUjcc4OX2Km/zPp4ndQ==";
+    const decrypted = try decrypt(&sk2, &pk1, ciphertext, allocator);
+    defer allocator.free(decrypted);
+
+    try std.testing.expectEqualStrings("nanana", decrypted);
+}
+
+test "interoperability with go-nostr large payload" {
+    try crypto.init();
+    defer crypto.cleanup();
+
+    const allocator = std.testing.allocator;
+
+    var sk1: [32]u8 = undefined;
+    var sk2: [32]u8 = undefined;
+    try hex.decode("91ba716fa9e7ea2fcbad360cf4f8e0d312f73984da63d90f524ad61a6a1e7dbe", &sk1);
+    try hex.decode("96f6fa197aa07477ab88f6981118466ae3a982faab8ad5db9d5426870c73d220", &sk2);
+
+    var pk1: [32]u8 = undefined;
+    try crypto.getPublicKey(&sk1, &pk1);
+
+    const ciphertext = "6f8dMstm+udOu7yipSn33orTmwQpWbtfuY95NH+eTU1kArysWJIDkYgI2D25EAGIDJsNd45jOJ2NbVOhFiL3ZP/NWsTwXokk34iyHyA/lkjzugQ1bHXoMD1fP/Ay4hB4al1NHb8HXHKZaxPrErwdRDb8qa/I6dXb/1xxyVvNQBHHvmsM5yIFaPwnCN1DZqXf2KbTA/Ekz7Hy+7R+Sy3TXLQDFpWYqykppkXc7Fs0qSuPRyxz5+anuN0dxZa9GTwTEnBrZPbthKkNRrvZMdTGJ6WumOh9aUq8OJJWy9aOgsXvs7qjN1UqcCqQqYaVnEOhCaqWNDsVtsFrVDj+SaLIBvCiomwF4C4nIgngJ5I69tx0UNI0q+ZnvOGQZ7m1PpW2NYP7Yw43HJNdeUEQAmdCPnh/PJwzLTnIxHmQU7n7SPlMdV0SFa6H8y2HHvex697GAkyE5t8c2uO24OnqIwF1tR3blIqXzTSRl0GA6QvrSj2p4UtnWjvF7xT7RiIEyTtgU/AsihTrXyXzWWZaIBJogpgw6erlZqWjCH7sZy/WoGYEiblobOAqMYxax6vRbeuGtoYksr/myX+x9rfLrYuoDRTw4woXOLmMrrj+Mf0TbAgc3SjdkqdsPU1553rlSqIEZXuFgoWmxvVQDtekgTYyS97G81TDSK9nTJT5ilku8NVq2LgtBXGwsNIw/xekcOUzJke3kpnFPutNaexR1VF3ohIuqRKYRGcd8ADJP2lfwMcaGRiplAmFoaVS1YUhQwYFNq9rMLf7YauRGV4BJg/t9srdGxf5RoKCvRo+XM/nLxxysTR9MVaEP/3lDqjwChMxs+eWfLHE5vRWV8hUEqdrWNZV29gsx5nQpzJ4PARGZVu310pQzc6JAlc2XAhhFk6RamkYJnmCSMnb/RblzIATBi2kNrCVAlaXIon188inB62rEpZGPkRIP7PUfu27S/elLQHBHeGDsxOXsBRo1gl3te+raoBHsxo6zvRnYbwdAQa5taDE63eh+fT6kFI+xYmXNAQkU8Dp0MVhEh4JQI06Ni/AKrvYpC95TXXIphZcF+/Pv/vaGkhG2X9S3uhugwWK?iv=2vWkOQQi0WynNJz/aZ4k2g==";
+    const decrypted = try decrypt(&sk2, &pk1, ciphertext, allocator);
+    defer allocator.free(decrypted);
+
+    try std.testing.expectEqualStrings("z" ** 800, decrypted);
 }
