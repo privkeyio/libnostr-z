@@ -1,3 +1,11 @@
+//! NIP-25: Reactions
+//!
+//! A reaction is a `kind 7` event used to indicate user reactions to other events.
+//! Supports like (+), dislike (-), emoji, and custom emoji reactions.
+//! External content reactions use `kind 17` with NIP-73 `k` + `i` tags.
+//!
+//! See: https://github.com/nostr-protocol/nips/blob/master/25.md
+
 const std = @import("std");
 const event_mod = @import("event.zig");
 const utils = @import("utils.zig");
