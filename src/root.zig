@@ -72,6 +72,7 @@ pub const pool = @import("pool.zig");
 pub const relay = @import("relay.zig");
 pub const signer = @import("signer.zig");
 pub const nip11 = @import("nip11.zig");
+pub const badges = @import("badges.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -168,4 +169,5 @@ test {
     _ = @import("relay.zig");
     _ = @import("signer.zig");
     _ = @import("nip11.zig");
+    _ = @import("badges.zig");
 }
