@@ -1,3 +1,12 @@
+//! NIP-43 Relay Access Metadata and Requests.
+//!
+//! Defines event kinds and parsing utilities for relay membership management:
+//! - Membership lists (kind 13534)
+//! - Add/remove user notifications (kinds 8000, 8001)
+//! - Join/invite/leave requests (kinds 28934, 28935, 28936)
+//!
+//! Zero-allocation parsing returns slices into the original JSON.
+
 const std = @import("std");
 const utils = @import("utils.zig");
 const hex = @import("hex.zig");
