@@ -1,3 +1,11 @@
+//! NIP-25: Reactions
+//!
+//! A reaction is a `kind 7` event used to indicate user reactions to other events.
+//! Supports like (+), dislike (-), emoji, and custom emoji reactions.
+//! External content reactions use `kind 17` with NIP-73 `k` + `i` tags.
+//!
+//! See: https://github.com/nostr-protocol/nips/blob/master/25.md
+
 const std = @import("std");
 const event_mod = @import("event.zig");
 const utils = @import("utils.zig");
@@ -271,10 +279,16 @@ pub fn buildAddressableReactionTags(
         str_idx += tag.len;
     }
 
-    if (str_idx + 2 > string_buf.len or count >= buf.len) return count;
+    var a_tag_size: usize = 2;
+    if (relay_hint != null) a_tag_size = 3;
+    if (str_idx + a_tag_size > string_buf.len or count >= buf.len) return count;
+
     string_buf[str_idx] = "a";
     string_buf[str_idx + 1] = coordinate;
-    buf[count] = string_buf[str_idx .. str_idx + 2];
+    if (relay_hint) |hint| {
+        string_buf[str_idx + 2] = hint;
+    }
+    buf[count] = string_buf[str_idx .. str_idx + a_tag_size];
     count += 1;
 
     return count;
@@ -787,6 +801,36 @@ test "buildAddressableReactionTags includes a tag" {
     try std.testing.expectEqualStrings("30023", tag_buf[2][1]);
     try std.testing.expectEqualStrings("a", tag_buf[3][0]);
     try std.testing.expectEqualStrings(coordinate, tag_buf[3][1]);
+    try std.testing.expectEqual(@as(usize, 2), tag_buf[3].len);
+}
+
+test "buildAddressableReactionTags includes relay hint in a tag" {
+    var tag_buf: [10][]const []const u8 = undefined;
+    var string_buf: [30][]const u8 = undefined;
+    var kind_buf: [11]u8 = undefined;
+
+    const event_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const author_pk = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const relay = "wss://relay.example.com";
+    const coordinate = "30023:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:my-article";
+
+    const count = buildAddressableReactionTags(
+        event_id,
+        author_pk,
+        relay,
+        30023,
+        coordinate,
+        &tag_buf,
+        &string_buf,
+        &kind_buf,
+    );
+
+    try std.testing.expectEqual(@as(usize, 4), count);
+
+    try std.testing.expectEqualStrings("a", tag_buf[3][0]);
+    try std.testing.expectEqualStrings(coordinate, tag_buf[3][1]);
+    try std.testing.expectEqual(@as(usize, 3), tag_buf[3].len);
+    try std.testing.expectEqualStrings(relay, tag_buf[3][2]);
 }
 
 test "buildExternalReactionTags creates correct structure" {
