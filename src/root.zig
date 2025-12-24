@@ -12,6 +12,7 @@
 //! - `replaceable.zig` - NIP-16 replaceable event logic
 //! - `index_keys.zig` - NIP-63 event indexing support
 //! - `relay_metadata.zig` - NIP-65 relay list metadata
+//! - `relay_groups.zig` - NIP-29 relay-based groups
 //! - `utils.zig` - JSON parsing utilities
 //! - `crypto.zig` - Cryptographic operations
 //! - `negentropy.zig` - NIP-77 negentropy protocol
@@ -26,6 +27,7 @@ pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
 pub const bech32 = @import("bech32.zig");
 pub const relay_metadata = @import("relay_metadata.zig");
+pub const relay_groups = @import("relay_groups.zig");
 pub const pow = @import("pow.zig");
 pub const nwc = @import("nwc.zig");
 pub const nip46 = @import("nip46.zig");
@@ -93,6 +95,7 @@ test {
     _ = @import("index_keys.zig");
     _ = @import("bech32.zig");
     _ = @import("relay_metadata.zig");
+    _ = @import("relay_groups.zig");
     _ = @import("pow.zig");
     _ = @import("negentropy.zig");
     _ = @import("stringzilla.zig");
