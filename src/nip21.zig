@@ -93,6 +93,11 @@ test "reject nsec URI" {
     try std.testing.expectError(Error.SecretKeyNotAllowed, parse(std.testing.allocator, uri));
 }
 
+test "reject uppercase NSEC URI" {
+    const uri = "nostr:NSEC1VL029MGPSPEDVA04G90VLTKH6FVH240ZQTV9K0T9AF8935KE9LAQSNLFE5";
+    try std.testing.expectError(Error.SecretKeyNotAllowed, parse(std.testing.allocator, uri));
+}
+
 test "reject invalid scheme" {
     try std.testing.expectError(Error.InvalidScheme, parse(std.testing.allocator, "http://example.com"));
     try std.testing.expectError(Error.InvalidScheme, parse(std.testing.allocator, "nostr"));
