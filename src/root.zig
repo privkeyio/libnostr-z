@@ -40,6 +40,7 @@
 //! - `http_auth.zig` - NIP-98 HTTP Auth
 //! - `zap_goal.zig` - NIP-75 Zap Goals
 //! - `file_metadata.zig` - NIP-94 file metadata events
+//! - `classified_listing.zig` - NIP-99 classified listings
 
 pub const crypto = @import("crypto.zig");
 pub const http_auth = @import("http_auth.zig");
@@ -77,6 +78,7 @@ pub const nip11 = @import("nip11.zig");
 pub const badges = @import("badges.zig");
 pub const zap_goal = @import("zap_goal.zig");
 pub const file_metadata = @import("file_metadata.zig");
+pub const classified_listing = @import("classified_listing.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -176,4 +178,5 @@ test {
     _ = @import("badges.zig");
     _ = @import("zap_goal.zig");
     _ = @import("file_metadata.zig");
+    _ = @import("classified_listing.zig");
 }
