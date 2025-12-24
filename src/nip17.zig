@@ -3,6 +3,7 @@ const utils = @import("utils.zig");
 const hex = @import("hex.zig");
 
 pub const Kind = struct {
+    pub const reaction: i32 = 7;
     pub const seal: i32 = 13;
     pub const chat_message: i32 = 14;
     pub const file_message: i32 = 15;
@@ -105,9 +106,9 @@ pub fn parseSubject(event_json: []const u8) ?[]const u8 {
     const start = std.mem.indexOf(u8, event_json, "[\"subject\",\"") orelse return null;
     const value_start = start + 12;
     if (value_start >= event_json.len) return null;
-    const value_end = std.mem.indexOf(u8, event_json[value_start..], "\"") orelse return null;
-    if (value_end == 0) return null;
-    return event_json[value_start..][0..value_end];
+    const value_end = utils.findStringEnd(event_json, value_start) orelse return null;
+    if (value_end == value_start) return null;
+    return event_json[value_start..value_end];
 }
 
 pub fn parseReplyTo(event_json: []const u8) ?[32]u8 {
@@ -205,6 +206,7 @@ fn parseTagValue(json: []const u8, tag_name: []const u8) ?[]const u8 {
 }
 
 test "Kind constants" {
+    try std.testing.expectEqual(@as(i32, 7), Kind.reaction);
     try std.testing.expectEqual(@as(i32, 13), Kind.seal);
     try std.testing.expectEqual(@as(i32, 14), Kind.chat_message);
     try std.testing.expectEqual(@as(i32, 15), Kind.file_message);
@@ -249,6 +251,14 @@ test "parseSubject" {
 test "parseSubject missing" {
     const json = "{\"kind\":14,\"tags\":[]}";
     try std.testing.expect(parseSubject(json) == null);
+}
+
+test "parseSubject with escaped quotes" {
+    const json =
+        \\{"kind":14,"tags":[["subject","Hello \"World\""]]}
+    ;
+    const subject = parseSubject(json).?;
+    try std.testing.expectEqualStrings("Hello \\\"World\\\"", subject);
 }
 
 test "parseReplyTo" {
