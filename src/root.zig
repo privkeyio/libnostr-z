@@ -38,6 +38,7 @@
 //! - `signer.zig` - Abstract signer interface for NIP-07/NIP-46/hardware wallets
 //! - `nip11.zig` - NIP-11 Relay Information Document
 //! - `http_auth.zig` - NIP-98 HTTP Auth
+//! - `zap_goal.zig` - NIP-75 Zap Goals
 
 pub const crypto = @import("crypto.zig");
 pub const http_auth = @import("http_auth.zig");
@@ -73,6 +74,7 @@ pub const relay = @import("relay.zig");
 pub const signer = @import("signer.zig");
 pub const nip11 = @import("nip11.zig");
 pub const badges = @import("badges.zig");
+pub const zap_goal = @import("zap_goal.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -170,4 +172,5 @@ test {
     _ = @import("signer.zig");
     _ = @import("nip11.zig");
     _ = @import("badges.zig");
+    _ = @import("zap_goal.zig");
 }
