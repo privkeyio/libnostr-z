@@ -137,8 +137,6 @@ pub const Pool = struct {
 
     const SubscriptionState = struct {
         filters: []Filter,
-        eose_count: usize,
-        relay_count: usize,
     };
 
     pub fn init(allocator: Allocator) Pool {
@@ -203,17 +201,41 @@ pub const Pool = struct {
     }
 
     pub fn removeRelay(self: *Pool, url: []const u8) !void {
+        var thread_to_join: ?Thread = null;
+        var found = false;
+
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            for (self.relays.items) |*relay| {
+                if (std.mem.eql(u8, relay.url, url)) {
+                    relay.should_stop.store(true, .release);
+                    thread_to_join = relay.thread;
+                    relay.thread = null;
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        if (!found) return error.RelayNotFound;
+
+        if (thread_to_join) |t| t.join();
+
         self.mutex.lock();
         defer self.mutex.unlock();
 
         for (self.relays.items, 0..) |*relay, i| {
             if (std.mem.eql(u8, relay.url, url)) {
-                relay.deinit();
+                if (relay.client) |*c| c.close();
+                relay.client = null;
+                self.allocator.free(relay.url);
+                if (relay.last_error) |err| self.allocator.free(err);
                 _ = self.relays.orderedRemove(i);
                 return;
             }
         }
-        return error.RelayNotFound;
     }
 
     pub fn connectAll(self: *Pool) !usize {
@@ -237,11 +259,37 @@ pub const Pool = struct {
     }
 
     pub fn disconnectAll(self: *Pool) void {
+        var threads_to_join: [32]?Thread = [_]?Thread{null} ** 32;
+        var thread_count: usize = 0;
+
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            for (self.relays.items) |*relay| {
+                relay.should_stop.store(true, .release);
+                if (relay.thread) |t| {
+                    if (thread_count < threads_to_join.len) {
+                        threads_to_join[thread_count] = t;
+                        thread_count += 1;
+                    }
+                    relay.thread = null;
+                }
+            }
+        }
+
+        for (threads_to_join[0..thread_count]) |maybe_thread| {
+            if (maybe_thread) |t| t.join();
+        }
+
         self.mutex.lock();
         defer self.mutex.unlock();
 
         for (self.relays.items) |*relay| {
-            relay.disconnect();
+            if (relay.client) |*c| c.close();
+            relay.client = null;
+            relay.setStatus(.disconnected);
+            relay.should_stop.store(false, .release);
         }
     }
 
@@ -277,7 +325,7 @@ pub const Pool = struct {
     }
 
     pub fn publish(self: *Pool, event_json: []const u8) ![]PublishResult {
-        const required_len = event_json.len + 16; // ["EVENT",] + ]
+        const required_len = event_json.len + 16;
         var stack_buf: [65536]u8 = undefined;
 
         var msg: []const u8 = undefined;
@@ -343,7 +391,7 @@ pub const Pool = struct {
     }
 
     pub fn publishToOne(self: *Pool, event_json: []const u8) !?PublishResult {
-        const required_len = event_json.len + 16; // ["EVENT",] + ]
+        const required_len = event_json.len + 16;
         var stack_buf: [65536]u8 = undefined;
 
         var msg: []const u8 = undefined;
@@ -414,8 +462,6 @@ pub const Pool = struct {
 
         try self.subscriptions.put(self.allocator, owned_id, .{
             .filters = owned_filters,
-            .eose_count = 0,
-            .relay_count = self.relays.items.len,
         });
 
         for (self.relays.items) |*relay| {
@@ -487,12 +533,12 @@ pub const Pool = struct {
                 var event = try Event.parseWithAllocator(event_data, self.allocator);
                 defer event.deinit();
 
-                // Atomic check-and-mark to avoid TOCTOU race
-                if (!try self.tryMarkSeen(event.id())) {
-                    return; // Already seen, skip
+                if (self.isDuplicate(event.id())) {
+                    return;
                 }
 
                 try self.message_queue.push(payload, relay_url);
+                try self.markSeen(event.id());
             }
         } else {
             try self.message_queue.push(payload, relay_url);
@@ -556,19 +602,14 @@ pub const Pool = struct {
         return self.seen_events.contains(event_id.*);
     }
 
-    /// Atomically checks if event_id is already seen and marks it if not.
-    /// Returns true if the event was NOT seen before (i.e., newly marked).
-    /// Returns false if the event was already seen (duplicate).
     fn tryMarkSeen(self: *Pool, event_id: *const [32]u8) !bool {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        // Check if already seen
         if (self.seen_events.contains(event_id.*)) {
-            return false; // Duplicate
+            return false;
         }
 
-        // Evict oldest if at capacity
         if (self.seen_events.count() >= self.options.dedup_cache_size) {
             var oldest_key: ?[32]u8 = null;
             var oldest_time: i64 = std.math.maxInt(i64);
@@ -587,7 +628,7 @@ pub const Pool = struct {
         }
 
         try self.seen_events.put(self.allocator, event_id.*, std.time.timestamp());
-        return true; // Newly seen
+        return true;
     }
 
     fn markSeen(self: *Pool, event_id: *const [32]u8) !void {
@@ -626,8 +667,6 @@ pub const Pool = struct {
         return self.seen_events.count();
     }
 
-    /// Returns a snapshot of relay information. Caller must free the returned slice
-    /// and each url/last_error string within it using freeRelayInfo.
     pub fn getRelays(self: *Pool) ![]RelayInfo {
         self.mutex.lock();
         defer self.mutex.unlock();
@@ -661,6 +700,16 @@ pub const Pool = struct {
         filters: []const Filter,
         timeout_ms: u64,
     ) ![]Event {
+        const workers_were_running = self.active_workers.load(.acquire) > 0;
+        if (!workers_were_running) {
+            try self.startReceiving();
+        }
+        defer {
+            if (!workers_were_running) {
+                self.stopReceiving();
+            }
+        }
+
         try self.subscribe(sub_id, filters);
         defer self.unsubscribe(sub_id) catch {};
 
@@ -672,11 +721,9 @@ pub const Pool = struct {
 
         const timeout_ns = timeout_ms * std.time.ns_per_ms;
         const deadline = std.time.nanoTimestamp() + @as(i128, timeout_ns);
-
         var eose_count: usize = 0;
 
         while (std.time.nanoTimestamp() < deadline) {
-            // Dynamically check current connected count to handle disconnects
             const current_connected = self.connectedCount();
             if (current_connected == 0 or eose_count >= current_connected) break;
 
@@ -697,6 +744,37 @@ pub const Pool = struct {
         }
 
         return events.toOwnedSlice();
+    }
+
+    fn stopReceiving(self: *Pool) void {
+        var threads_to_join: [32]?Thread = [_]?Thread{null} ** 32;
+        var thread_count: usize = 0;
+
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            for (self.relays.items) |*relay| {
+                relay.should_stop.store(true, .release);
+                if (relay.thread) |t| {
+                    if (thread_count < threads_to_join.len) {
+                        threads_to_join[thread_count] = t;
+                        thread_count += 1;
+                    }
+                    relay.thread = null;
+                }
+            }
+        }
+
+        for (threads_to_join[0..thread_count]) |maybe_thread| {
+            if (maybe_thread) |t| t.join();
+        }
+
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        for (self.relays.items) |*relay| {
+            relay.should_stop.store(false, .release);
+        }
     }
 };
 
