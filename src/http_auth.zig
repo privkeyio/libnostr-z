@@ -1,5 +1,6 @@
 const std = @import("std");
 const utils = @import("utils.zig");
+const Event = @import("event.zig").Event;
 
 pub const HttpAuth = struct {
     pub const Kind: i32 = 27235;
@@ -53,6 +54,8 @@ pub const HttpAuth = struct {
         PayloadMismatch,
         EventExpired,
         EventTooNew,
+        InvalidEvent,
+        SignatureInvalid,
     };
 
     pub fn extractTags(json: []const u8) Tags {
@@ -104,6 +107,55 @@ pub const HttpAuth = struct {
                 return error.PayloadMismatch;
             }
         }
+    }
+
+    /// Validates an HTTP Auth event including signature verification.
+    /// Returns the authenticated pubkey (32 bytes) on success.
+    /// This is the recommended function for server-side validation.
+    pub fn validateAndVerify(
+        json: []const u8,
+        expected_url: []const u8,
+        expected_method: []const u8,
+        expected_payload_hash: ?[]const u8,
+        time_window: ?i64,
+    ) ValidationError![32]u8 {
+        // Parse and verify the event signature
+        const event = Event.parse(json) catch return error.InvalidEvent;
+        event.validate() catch return error.SignatureInvalid;
+
+        // Now validate NIP-98 specific fields
+        if (event.kind() != Kind) return error.InvalidKind;
+
+        const now = std.time.timestamp();
+        const window = time_window orelse DefaultTimeWindow;
+        const created_at = event.createdAt();
+
+        if (created_at < now - window) return error.EventExpired;
+        if (created_at > now + window) return error.EventTooNew;
+
+        const tags = extractTags(json);
+
+        if (tags.url == null) return error.MissingUrl;
+        if (!std.mem.eql(u8, tags.url.?, expected_url)) return error.UrlMismatch;
+
+        if (tags.method == null) return error.MissingMethod;
+        if (!std.ascii.eqlIgnoreCase(tags.method.?, expected_method)) return error.MethodMismatch;
+
+        if (expected_payload_hash) |expected| {
+            if (tags.payload) |payload| {
+                if (!std.ascii.eqlIgnoreCase(payload, expected)) return error.PayloadMismatch;
+            } else {
+                return error.PayloadMismatch;
+            }
+        }
+
+        return event.pubkey().*;
+    }
+
+    /// Extracts the pubkey from a JSON event (without signature verification).
+    /// Use validateAndVerify for full validation including signature check.
+    pub fn extractPubkey(json: []const u8) ?[32]u8 {
+        return utils.extractHexField(json, "pubkey", 32);
     }
 
     pub fn parseAuthorizationHeader(header: []const u8) ?[]const u8 {
@@ -286,4 +338,115 @@ test "HttpAuth.validate future event" {
     , .{future_time}) catch unreachable;
 
     try std.testing.expectError(error.EventTooNew, HttpAuth.validate(json, "https://api.example.com", "GET", null, null));
+}
+
+test "HttpAuth.validateAndVerify with valid signature" {
+    const event_mod = @import("event.zig");
+    const builder_mod = @import("builder.zig");
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const keypair = builder_mod.Keypair.generate();
+    const url = "https://api.example.com/v1/resource";
+    const method = "POST";
+
+    const tags = &[_][]const []const u8{
+        &[_][]const u8{ "u", url },
+        &[_][]const u8{ "method", method },
+    };
+
+    var builder = builder_mod.EventBuilder{};
+    _ = builder.setKind(HttpAuth.Kind).setContent("").setTags(tags);
+    try builder.sign(&keypair);
+
+    var json_buf: [2048]u8 = undefined;
+    const json = try builder.serialize(&json_buf);
+
+    const pubkey = try HttpAuth.validateAndVerify(json, url, method, null, null);
+    try std.testing.expectEqualSlices(u8, &keypair.public_key, &pubkey);
+}
+
+test "HttpAuth.validateAndVerify rejects invalid signature" {
+    const event_mod = @import("event.zig");
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    // Manually crafted event with invalid signature
+    const now = std.time.timestamp();
+    var json_buf: [512]u8 = undefined;
+    const json = std.fmt.bufPrint(&json_buf,
+        \\{{"id":"0000000000000000000000000000000000000000000000000000000000000000","pubkey":"0000000000000000000000000000000000000000000000000000000000000000","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","kind":27235,"created_at":{d},"content":"","tags":[["u","https://api.example.com"],["method","GET"]]}}
+    , .{now}) catch unreachable;
+
+    try std.testing.expectError(error.SignatureInvalid, HttpAuth.validateAndVerify(json, "https://api.example.com", "GET", null, null));
+}
+
+test "HttpAuth.validateAndVerify rejects wrong kind" {
+    const event_mod = @import("event.zig");
+    const builder_mod = @import("builder.zig");
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const keypair = builder_mod.Keypair.generate();
+    const url = "https://api.example.com";
+
+    const tags = &[_][]const []const u8{
+        &[_][]const u8{ "u", url },
+        &[_][]const u8{ "method", "GET" },
+    };
+
+    var builder = builder_mod.EventBuilder{};
+    _ = builder.setKind(1).setContent("").setTags(tags); // Wrong kind
+    try builder.sign(&keypair);
+
+    var json_buf: [2048]u8 = undefined;
+    const json = try builder.serialize(&json_buf);
+
+    try std.testing.expectError(error.InvalidKind, HttpAuth.validateAndVerify(json, url, "GET", null, null));
+}
+
+test "HttpAuth.validateAndVerify with payload hash" {
+    const event_mod = @import("event.zig");
+    const builder_mod = @import("builder.zig");
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const keypair = builder_mod.Keypair.generate();
+    const url = "https://api.example.com/upload";
+    const body = "{\"data\":\"test\"}";
+
+    var payload_hash: [64]u8 = undefined;
+    HttpAuth.computePayloadHash(body, &payload_hash);
+
+    const tags = &[_][]const []const u8{
+        &[_][]const u8{ "u", url },
+        &[_][]const u8{ "method", "POST" },
+        &[_][]const u8{ "payload", &payload_hash },
+    };
+
+    var builder = builder_mod.EventBuilder{};
+    _ = builder.setKind(HttpAuth.Kind).setContent("").setTags(tags);
+    try builder.sign(&keypair);
+
+    var json_buf: [2048]u8 = undefined;
+    const json = try builder.serialize(&json_buf);
+
+    const pubkey = try HttpAuth.validateAndVerify(json, url, "POST", &payload_hash, null);
+    try std.testing.expectEqualSlices(u8, &keypair.public_key, &pubkey);
+
+    // Test with wrong payload hash
+    var wrong_hash: [64]u8 = undefined;
+    HttpAuth.computePayloadHash("wrong body", &wrong_hash);
+    try std.testing.expectError(error.PayloadMismatch, HttpAuth.validateAndVerify(json, url, "POST", &wrong_hash, null));
+}
+
+test "HttpAuth.extractPubkey" {
+    const json =
+        \\{"id":"abc","pubkey":"63fe6318dc58583cfe16810f86dd09e18bfd76aabc24a0081ce2856f330504ed","sig":"ghi","kind":27235}
+    ;
+    const pubkey = HttpAuth.extractPubkey(json);
+    try std.testing.expect(pubkey != null);
+
+    const expected = [_]u8{ 0x63, 0xfe, 0x63, 0x18, 0xdc, 0x58, 0x58, 0x3c, 0xfe, 0x16, 0x81, 0x0f, 0x86, 0xdd, 0x09, 0xe1, 0x8b, 0xfd, 0x76, 0xaa, 0xbc, 0x24, 0xa0, 0x08, 0x1c, 0xe2, 0x85, 0x6f, 0x33, 0x05, 0x04, 0xed };
+    try std.testing.expectEqualSlices(u8, &expected, &pubkey.?);
 }
