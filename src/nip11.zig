@@ -370,10 +370,21 @@ pub const FeeIterator = struct {
             if (c == '{') {
                 const obj_start = self.pos;
                 var depth: i32 = 1;
+                var in_string = false;
+                var escape = false;
                 self.pos += 1;
                 while (self.pos < self.json.len and depth > 0) {
-                    if (self.json[self.pos] == '{') depth += 1;
-                    if (self.json[self.pos] == '}') depth -= 1;
+                    const ch = self.json[self.pos];
+                    if (escape) {
+                        escape = false;
+                    } else if (ch == '\\' and in_string) {
+                        escape = true;
+                    } else if (ch == '"') {
+                        in_string = !in_string;
+                    } else if (!in_string) {
+                        if (ch == '{') depth += 1;
+                        if (ch == '}') depth -= 1;
+                    }
                     self.pos += 1;
                 }
                 return Fee{ .json = self.json[obj_start..self.pos] };
@@ -401,10 +412,21 @@ pub const RetentionIterator = struct {
             if (c == '{') {
                 const obj_start = self.pos;
                 var depth: i32 = 1;
+                var in_string = false;
+                var escape = false;
                 self.pos += 1;
                 while (self.pos < self.json.len and depth > 0) {
-                    if (self.json[self.pos] == '{') depth += 1;
-                    if (self.json[self.pos] == '}') depth -= 1;
+                    const ch = self.json[self.pos];
+                    if (escape) {
+                        escape = false;
+                    } else if (ch == '\\' and in_string) {
+                        escape = true;
+                    } else if (ch == '"') {
+                        in_string = !in_string;
+                    } else if (!in_string) {
+                        if (ch == '{') depth += 1;
+                        if (ch == '}') depth -= 1;
+                    }
                     self.pos += 1;
                 }
                 return RetentionEntry{ .json = self.json[obj_start..self.pos] };
@@ -662,4 +684,21 @@ test "parse publication fees with kinds" {
     const k = kinds.next().?;
     try std.testing.expectEqual(KindEntry{ .single = 4 }, k);
     try std.testing.expect(kinds.next() == null);
+}
+
+test "parse fees with string containing braces" {
+    // Regression test: ensure braces inside strings don't break object parsing
+    const json =
+        \\{"name":"Test","fees":{"admission":[{"amount":1000,"unit":"msats","note":"test {value}"}]}}
+    ;
+
+    var info = RelayInformation.parseFromSlice(json);
+    defer info.deinit();
+
+    const f = info.fees().?;
+    var adm_iter = f.admission();
+    const adm = adm_iter.next().?;
+    try std.testing.expectEqual(@as(i64, 1000), adm.amount().?);
+    try std.testing.expectEqualStrings("msats", adm.unit().?);
+    try std.testing.expect(adm_iter.next() == null);
 }
