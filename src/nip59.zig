@@ -141,12 +141,14 @@ fn signAndSerialize(
     created_at: i64,
     keypair: *const Keypair,
     out_buf: []u8,
+    allocator: std.mem.Allocator,
 ) ![]u8 {
     var id: [32]u8 = undefined;
     var sig: [64]u8 = undefined;
 
-    var commitment_buf: [131072]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&commitment_buf);
+    const commitment_buf = try allocator.alloc(u8, 131072);
+    defer allocator.free(commitment_buf);
+    var fbs = std.io.fixedBufferStream(commitment_buf);
     const cwriter = fbs.writer();
 
     try cwriter.writeAll("[0,\"");
@@ -231,8 +233,9 @@ pub fn createSeal(
     out_buf: []u8,
     allocator: std.mem.Allocator,
 ) ![]u8 {
-    var rumor_json_buf: [65536]u8 = undefined;
-    const rumor_json = try rumor.serializeJson(&rumor_json_buf);
+    const rumor_json_buf = try allocator.alloc(u8, 65536);
+    defer allocator.free(rumor_json_buf);
+    const rumor_json = try rumor.serializeJson(rumor_json_buf);
 
     const encrypted_content = try crypto.nip44Encrypt(
         &sender_keypair.secret_key,
@@ -252,6 +255,7 @@ pub fn createSeal(
         seal_created_at,
         sender_keypair,
         out_buf,
+        allocator,
     );
 }
 
@@ -292,6 +296,7 @@ pub fn createGiftWrap(
         wrap_created_at,
         &ephemeral_keypair,
         out_buf,
+        allocator,
     );
 
     return .{
@@ -559,6 +564,7 @@ test "unwrap fails on wrong kind" {
         1700000000,
         &keypair,
         &buf,
+        allocator,
     );
 
     const result = unwrap(json, &keypair, allocator);

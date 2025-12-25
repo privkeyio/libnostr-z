@@ -15,3 +15,8 @@ Thumbs.db
 
 # Debug
 *.pdb
+
+# Test binaries
+check_crypto
+test_crypto
+test_crypto*
