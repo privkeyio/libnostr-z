@@ -45,7 +45,19 @@ pub const ReferenceIterator = struct {
             const uri = self.content[uri_start..uri_end];
             self.pos = uri_end;
 
-            const decoded = bech32.decodeNostr(self.allocator, uri) catch null;
+            // Decode the bech32 identifier, but skip nsec for security.
+            // Users sometimes accidentally post their nsec, and NIP-27 parsers
+            // should not make it easy to extract secret keys from content.
+            // See: nostr-tools nip27.ts which explicitly ignores nsec.
+            const decoded = blk: {
+                const d = bech32.decodeNostr(self.allocator, uri) catch null;
+                if (d) |decoded_val| {
+                    if (decoded_val == .seckey) {
+                        break :blk null;
+                    }
+                }
+                break :blk d;
+            };
             return Reference{
                 .start = start,
                 .end = uri_end,
@@ -252,5 +264,19 @@ test "consecutive nostr: patterns" {
 
     // Iterator advances past the first match, missing the nested valid reference
     // This is acceptable edge case behavior
+    try std.testing.expect(iter.next() == null);
+}
+
+test "nsec references have null decoded for security" {
+    // nsec references should be found but NOT decoded, to prevent
+    // accidental exposure of secret keys that users post in content.
+    const content = "oops nostr:nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5 leaked";
+    var iter = findReferences(content, std.testing.allocator);
+
+    const ref = iter.next().?;
+    // The reference is found (uri is captured)
+    try std.testing.expectEqualStrings("nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5", ref.uri);
+    // But decoded is null - secret key is NOT exposed
+    try std.testing.expect(ref.decoded == null);
     try std.testing.expect(iter.next() == null);
 }
