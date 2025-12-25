@@ -440,3 +440,91 @@ test "Nip98Tags.extract" {
     try std.testing.expectEqualStrings("POST", tags.method.?);
     try std.testing.expectEqualStrings("abc123", tags.payload.?);
 }
+
+/// Validates NIP-98 HTTP Auth header and returns the pubkey if valid
+pub const AuthResult = struct {
+    pubkey: ?[32]u8 = null,
+    err: ?[]const u8 = null,
+
+    pub fn success(pubkey: [32]u8) AuthResult {
+        return .{ .pubkey = pubkey };
+    }
+
+    pub fn fail(err: []const u8) AuthResult {
+        return .{ .err = err };
+    }
+};
+
+const Event = @import("event.zig").Event;
+const Auth = @import("auth.zig").Auth;
+
+pub fn validateNip98Auth(auth_header: ?[]const u8, body: []const u8, request_url: []const u8) AuthResult {
+    const header = auth_header orelse return AuthResult.fail("{\"error\":\"missing authorization header\"}");
+
+    if (!std.ascii.startsWithIgnoreCase(header, "nostr ")) {
+        return AuthResult.fail("{\"error\":\"invalid authorization scheme\"}");
+    }
+
+    const b64_event = std.mem.trim(u8, header[6..], " ");
+    var decode_buf: [4096]u8 = undefined;
+    const decoded_len = std.base64.standard.Decoder.calcSizeForSlice(b64_event) catch {
+        return AuthResult.fail("{\"error\":\"invalid base64 in authorization\"}");
+    };
+    if (decoded_len > decode_buf.len) {
+        return AuthResult.fail("{\"error\":\"authorization event too large\"}");
+    }
+    std.base64.standard.Decoder.decode(&decode_buf, b64_event) catch {
+        return AuthResult.fail("{\"error\":\"invalid base64 in authorization\"}");
+    };
+    const decoded = decode_buf[0..decoded_len];
+
+    var event = Event.parse(decoded) catch {
+        return AuthResult.fail("{\"error\":\"invalid event in authorization\"}");
+    };
+    defer event.deinit();
+
+    if (event.kind() != 27235) {
+        return AuthResult.fail("{\"error\":\"authorization event must be kind 27235\"}");
+    }
+
+    const now = std.time.timestamp();
+    const created = event.createdAt();
+    const time_diff = if (now > created) now - created else created - now;
+    if (time_diff > 60) {
+        return AuthResult.fail("{\"error\":\"authorization event timestamp too old\"}");
+    }
+
+    event.validate() catch {
+        return AuthResult.fail("{\"error\":\"invalid event signature\"}");
+    };
+
+    const tags = Nip98Tags.extract(decoded);
+
+    if (tags.url == null) {
+        return AuthResult.fail("{\"error\":\"missing u tag in authorization\"}");
+    }
+    if (!Auth.domainsMatch(request_url, tags.url.?)) {
+        return AuthResult.fail("{\"error\":\"url mismatch in authorization\"}");
+    }
+
+    if (tags.method == null or !std.ascii.eqlIgnoreCase(tags.method.?, "POST")) {
+        return AuthResult.fail("{\"error\":\"method must be POST\"}");
+    }
+
+    if (tags.payload) |expected_hash| {
+        var actual_hash: [64]u8 = undefined;
+        var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
+        sha256.update(body);
+        const digest = sha256.finalResult();
+        hex.encode(&digest, &actual_hash);
+        if (!std.mem.eql(u8, expected_hash, &actual_hash)) {
+            return AuthResult.fail("{\"error\":\"payload hash mismatch\"}");
+        }
+    } else {
+        return AuthResult.fail("{\"error\":\"missing payload tag in authorization\"}");
+    }
+
+    var pubkey: [32]u8 = undefined;
+    @memcpy(&pubkey, event.pubkey());
+    return AuthResult.success(pubkey);
+}

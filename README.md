@@ -70,6 +70,18 @@ defer msg.deinit();
 
 // Create relay responses
 const response = try nostr.RelayMsg.ok(event.id(), true, "", &buf);
+
+// Connect to a single relay
+var relay = try nostr.Relay.init(allocator, "wss://relay.example.com", .{});
+defer relay.deinit();
+try relay.connect();
+
+// Or use a pool for multiple relays
+var pool = nostr.Pool.init(allocator);
+defer pool.deinit();
+try pool.addRelay("wss://relay1.example.com");
+try pool.addRelay("wss://relay2.example.com");
+_ = try pool.connectAll();
 ```
 
 ## Projects Using libnostr-z
