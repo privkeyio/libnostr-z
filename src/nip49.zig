@@ -40,6 +40,8 @@ const NONCE_LEN: usize = 24;
 const KEY_LEN: usize = 32;
 const TAG_LEN: usize = 16;
 const PAYLOAD_LEN: usize = 1 + 1 + SALT_LEN + NONCE_LEN + 1 + KEY_LEN + TAG_LEN; // 91 bytes
+// Bech32 encoding: hrp(9) + separator(1) + data5((91*8+4)/5=146) + checksum(6) = 162
+const NCRYPTSEC_LEN: usize = 9 + 1 + ((PAYLOAD_LEN * 8 + 4) / 5) + 6; // 162 bytes
 
 const XChaCha20Poly1305 = std.crypto.aead.chacha_poly.XChaCha20Poly1305;
 const scrypt = std.crypto.pwhash.scrypt;
@@ -52,7 +54,7 @@ pub fn encrypt(
     key_security: KeySecurity,
     out: []u8,
 ) Error![]const u8 {
-    if (out.len < 160) return Error.BufferTooSmall;
+    if (out.len < NCRYPTSEC_LEN) return Error.BufferTooSmall;
 
     var salt: [SALT_LEN]u8 = undefined;
     std.crypto.random.bytes(&salt);
@@ -242,4 +244,20 @@ test "nip49 all key security values roundtrip" {
         try std.testing.expectEqualSlices(u8, &secret_key, &decrypted_key);
         try std.testing.expectEqual(expected_security, actual_security);
     }
+}
+
+test "nip49 minimum buffer size" {
+    const allocator = std.testing.allocator;
+
+    var secret_key: [32]u8 = undefined;
+    std.crypto.random.bytes(&secret_key);
+
+    // Buffer too small should fail
+    var small_buf: [NCRYPTSEC_LEN - 1]u8 = undefined;
+    try std.testing.expectError(Error.BufferTooSmall, encrypt(allocator, &secret_key, "test", 4, .unknown, &small_buf));
+
+    // Exact minimum size should succeed
+    var exact_buf: [NCRYPTSEC_LEN]u8 = undefined;
+    const ncryptsec = try encrypt(allocator, &secret_key, "test", 4, .unknown, &exact_buf);
+    try std.testing.expectEqual(@as(usize, NCRYPTSEC_LEN), ncryptsec.len);
 }
