@@ -107,6 +107,7 @@ pub const ParsedParams = struct {
     }
 
     pub fn parseStrings(params: []const u8, comptime max_count: usize, allocator: std.mem.Allocator) ParsedParams {
+        comptime std.debug.assert(max_count <= 4);
         var result = ParsedParams{ .allocator = allocator };
         var count: usize = 0;
         var pos: usize = 0;
@@ -234,7 +235,8 @@ fn unescapeString(raw: []const u8, allocator: std.mem.Allocator) ?[]const u8 {
 
     if (write_pos < buf.len) {
         const shrunk = allocator.realloc(buf, write_pos) catch {
-            return buf[0..write_pos];
+            allocator.free(buf);
+            return null;
         };
         return shrunk;
     }
@@ -393,7 +395,7 @@ pub fn writeJsonString(buf: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allo
             '\n' => try buf.appendSlice(allocator, "\\n"),
             '\r' => try buf.appendSlice(allocator, "\\r"),
             '\t' => try buf.appendSlice(allocator, "\\t"),
-            0x00...0x08, 0x0b, 0x0c, 0x0e...0x1f => {
+            0x00...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {
                 var escape_buf: [6]u8 = undefined;
                 const esc = std.fmt.bufPrint(&escape_buf, "\\u{x:0>4}", .{c}) catch continue;
                 try buf.appendSlice(allocator, esc);
@@ -491,7 +493,11 @@ pub fn validateNip98Auth(auth_header: ?[]const u8, body: []const u8, request_url
     const created = event.createdAt();
     const time_diff = if (now > created) now - created else created - now;
     if (time_diff > 60) {
-        return AuthResult.fail("{\"error\":\"authorization event timestamp too old\"}");
+        if (created > now) {
+            return AuthResult.fail("{\"error\":\"authorization event timestamp in the future\"}");
+        } else {
+            return AuthResult.fail("{\"error\":\"authorization event timestamp too old\"}");
+        }
     }
 
     event.validate() catch {
@@ -503,7 +509,7 @@ pub fn validateNip98Auth(auth_header: ?[]const u8, body: []const u8, request_url
     if (tags.url == null) {
         return AuthResult.fail("{\"error\":\"missing u tag in authorization\"}");
     }
-    if (!Auth.domainsMatch(request_url, tags.url.?)) {
+    if (!Auth.urlsMatch(request_url, tags.url.?)) {
         return AuthResult.fail("{\"error\":\"url mismatch in authorization\"}");
     }
 
@@ -512,12 +518,15 @@ pub fn validateNip98Auth(auth_header: ?[]const u8, body: []const u8, request_url
     }
 
     if (tags.payload) |expected_hash| {
+        if (expected_hash.len != 64) {
+            return AuthResult.fail("{\"error\":\"payload hash mismatch\"}");
+        }
         var actual_hash: [64]u8 = undefined;
         var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
         sha256.update(body);
         const digest = sha256.finalResult();
         hex.encode(&digest, &actual_hash);
-        if (!std.mem.eql(u8, expected_hash, &actual_hash)) {
+        if (!std.ascii.eqlIgnoreCase(expected_hash, &actual_hash)) {
             return AuthResult.fail("{\"error\":\"payload hash mismatch\"}");
         }
     } else {
@@ -527,4 +536,47 @@ pub fn validateNip98Auth(auth_header: ?[]const u8, body: []const u8, request_url
     var pubkey: [32]u8 = undefined;
     @memcpy(&pubkey, event.pubkey());
     return AuthResult.success(pubkey);
+}
+
+test "validateNip98Auth full flow" {
+    const event_mod = @import("event.zig");
+    const builder_mod = @import("builder.zig");
+
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const keypair = builder_mod.Keypair.generate();
+
+    const body = "{\"method\":\"supportedmethods\",\"params\":[]}";
+    var body_hash: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(body, &body_hash, .{});
+    var payload_hex: [64]u8 = undefined;
+    hex.encode(&body_hash, &payload_hex);
+
+    const tags = [_][]const []const u8{
+        &[_][]const u8{ "u", "https://relay.example.com" },
+        &[_][]const u8{ "method", "POST" },
+        &[_][]const u8{ "payload", &payload_hex },
+    };
+
+    var builder = builder_mod.EventBuilder{};
+    _ = builder.setKind(27235).setContent("").setTags(&tags);
+    try builder.sign(&keypair);
+
+    var json_buf: [4096]u8 = undefined;
+    const json = try builder.serialize(&json_buf);
+
+    var b64_buf: [8192]u8 = undefined;
+    const b64_len = std.base64.standard.Encoder.calcSize(json.len);
+    const b64 = b64_buf[0..b64_len];
+    _ = std.base64.standard.Encoder.encode(b64, json);
+
+    var header_buf: [8200]u8 = undefined;
+    const header = std.fmt.bufPrint(&header_buf, "Nostr {s}", .{b64}) catch unreachable;
+
+    const result = validateNip98Auth(header, body, "https://relay.example.com");
+
+    try std.testing.expect(result.err == null);
+    try std.testing.expect(result.pubkey != null);
+    try std.testing.expectEqualSlices(u8, &keypair.public_key, &result.pubkey.?);
 }
