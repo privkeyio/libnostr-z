@@ -4,7 +4,9 @@ const utils = @import("utils.zig");
 
 pub const Event = event_mod.Event;
 
-pub const ZAP_GOAL_KIND: i32 = 9041;
+pub const Kind = struct {
+    pub const goal: i32 = 9041;
+};
 
 pub const ZapBeneficiary = struct {
     pubkey: []const u8,
@@ -13,6 +15,7 @@ pub const ZapBeneficiary = struct {
 };
 
 pub const ZapGoal = struct {
+    content: []const u8,
     amount: u64,
     relays: std.ArrayListUnmanaged([]const u8),
     closed_at: ?i64,
@@ -25,6 +28,7 @@ pub const ZapGoal = struct {
 
     pub fn init(allocator: std.mem.Allocator) ZapGoal {
         return .{
+            .content = "",
             .amount = 0,
             .relays = .{},
             .closed_at = null,
@@ -38,6 +42,8 @@ pub const ZapGoal = struct {
     }
 
     pub fn deinit(self: *ZapGoal) void {
+        if (self.content.len > 0) self.allocator.free(self.content);
+
         for (self.relays.items) |relay| {
             self.allocator.free(relay);
         }
@@ -57,12 +63,19 @@ pub const ZapGoal = struct {
     }
 
     pub fn fromEvent(event: *const Event, allocator: std.mem.Allocator) !ZapGoal {
-        if (event.kind() != ZAP_GOAL_KIND) {
+        if (event.kind() != Kind.goal) {
             return error.InvalidKind;
         }
 
         var goal = ZapGoal.init(allocator);
         errdefer goal.deinit();
+
+        // Parse content field (human-readable description per NIP-75)
+        if (utils.extractJsonString(event.raw_json, "content")) |content_str| {
+            if (content_str.len > 0) {
+                goal.content = try allocator.dupe(u8, content_str);
+            }
+        }
 
         const tags_json = utils.findJsonValue(event.raw_json, "tags") orelse return error.MissingTags;
         var iter = TagIterator.init(tags_json);
@@ -335,6 +348,7 @@ test "ZapGoal.fromEvent parses kind:9041" {
     var goal = try ZapGoal.fromEvent(&event, std.testing.allocator);
     defer goal.deinit();
 
+    try std.testing.expectEqualStrings("Nostrasia travel expenses", goal.content);
     try std.testing.expectEqual(@as(u64, 210000), goal.amount);
     try std.testing.expectEqual(@as(usize, 2), goal.relayCount());
     try std.testing.expectEqualStrings("wss://alicerelay.example.com", goal.relays.items[0]);
@@ -358,6 +372,7 @@ test "ZapGoal.fromEvent parses optional tags" {
     var goal = try ZapGoal.fromEvent(&event, std.testing.allocator);
     defer goal.deinit();
 
+    try std.testing.expectEqualStrings("Conference funding", goal.content);
     try std.testing.expectEqual(@as(u64, 500000), goal.amount);
     try std.testing.expectEqual(@as(i64, 1700100000), goal.closed_at.?);
     try std.testing.expectEqualStrings("https://example.com/goal.png", goal.image.?);
@@ -546,4 +561,23 @@ test "ZapGoal.fromEvent handles duplicate optional tags" {
     // Should take first value, not leak the second
     try std.testing.expectEqualStrings("https://first.example.com/img.png", goal.image.?);
     try std.testing.expectEqualStrings("First summary", goal.summary.?);
+}
+
+test "ZapGoal.fromEvent handles empty content" {
+    try event_mod.init();
+    defer event_mod.cleanup();
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":9041,"created_at":1700000000,"content":"","tags":[["relays","wss://relay.example.com"],["amount","100000"]]}
+    ;
+
+    var event = try Event.parse(json);
+    defer event.deinit();
+
+    var goal = try ZapGoal.fromEvent(&event, std.testing.allocator);
+    defer goal.deinit();
+
+    // Empty content should remain as empty string (not leak memory on deinit)
+    try std.testing.expectEqualStrings("", goal.content);
+    try std.testing.expectEqual(@as(u64, 100000), goal.amount);
 }
