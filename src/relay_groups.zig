@@ -191,6 +191,11 @@ pub const GroupAdmins = struct {
             }
 
             const roles = try roles_list.toOwnedSlice(allocator);
+            errdefer {
+                for (roles) |r| allocator.free(r);
+                allocator.free(roles);
+            }
+
             try admins.admins.append(allocator, .{
                 .pubkey = pubkey,
                 .roles = roles,
@@ -313,6 +318,7 @@ pub const GroupRoles = struct {
             if (entry.description) |d| {
                 description = try allocator.dupe(u8, d);
             }
+            errdefer if (description) |desc| allocator.free(desc);
 
             try group_roles.roles.append(allocator, .{
                 .name = name,
