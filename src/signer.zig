@@ -97,9 +97,9 @@ pub const LocalSigner = struct {
     ///
     /// The caller should zero their copy of the secret key after calling this function
     /// if it's no longer needed. Call `deinit()` when done with the signer.
-    pub fn fromSecretKey(secret_key: [32]u8) !LocalSigner {
+    pub fn fromSecretKey(secret_key: [32]u8) Error!LocalSigner {
         var public_key: [32]u8 = undefined;
-        crypto.getPublicKey(&secret_key, &public_key) catch return error.SigningFailed;
+        crypto.getPublicKey(&secret_key, &public_key) catch return error.KeyGenerationFailed;
         return .{
             .secret_key = secret_key,
             .public_key = public_key,
