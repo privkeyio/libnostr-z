@@ -64,18 +64,21 @@ pub const ZapRequest = struct {
     }
 
     /// Server-side validation per NIP-57 Appendix D.
-    /// Validates: exactly one p tag, 0-1 e tags, valid a tag format if present.
+    /// Validates: exactly one p tag, 0-1 e tags, 0-1 P tags, valid a tag format if present.
     pub fn validateServer(self: *const ZapRequest) ValidationError!void {
         try self.validate();
 
-        // Count p and e tags
+        // Count p, e, and P tags
         var p_count: usize = 0;
         var e_count: usize = 0;
+        var big_p_count: usize = 0;
 
         var iter = utils.TagIterator.init(self.raw_json, "tags") orelse return;
         while (iter.next()) |tag| {
             if (std.mem.eql(u8, tag.name, "p") and tag.value.len == 64) {
                 p_count += 1;
+            } else if (std.mem.eql(u8, tag.name, "P") and tag.value.len == 64) {
+                big_p_count += 1;
             } else if (std.mem.eql(u8, tag.name, "e") and tag.value.len == 64) {
                 e_count += 1;
             } else if (std.mem.eql(u8, tag.name, "a")) {
@@ -87,6 +90,7 @@ pub const ZapRequest = struct {
 
         if (p_count != 1) return error.MultiplePTags;
         if (e_count > 1) return error.MultipleETags;
+        if (big_p_count > 1) return error.MultiplePTags;
     }
 
     pub fn validateWithAmount(self: *const ZapRequest, query_amount: u64) ValidationError!void {
@@ -510,21 +514,44 @@ fn findZapTagElements(tags_json: []const u8, pubkey_hex: []const u8) struct { re
 fn parseBolt11Amount(bolt11: []const u8) ?u64 {
     if (!std.mem.startsWith(u8, bolt11, "lnbc")) return null;
 
-    var pos: usize = 4;
-    const amount_start = pos;
+    // Find the separator '1' that ends the human-readable part
+    // Search within first 50 chars to avoid scanning entire invoice
+    const search_limit = @min(bolt11.len, 50);
+    var separator_pos: ?usize = null;
+    var i: usize = search_limit;
+    while (i > 4) {
+        i -= 1;
+        if (bolt11[i] == '1') {
+            separator_pos = i;
+            break;
+        }
+    }
 
-    while (pos < bolt11.len and bolt11[pos] >= '0' and bolt11[pos] <= '9') : (pos += 1) {}
+    const hrp_end = separator_pos orelse return null;
+    if (hrp_end <= 4) return null; // No amount specified
 
-    if (pos == amount_start or pos >= bolt11.len) return null;
+    const amount_str = bolt11[4..hrp_end];
+    if (amount_str.len == 0) return null;
 
-    const amount = std.fmt.parseInt(u64, bolt11[amount_start..pos], 10) catch return null;
-    const multiplier = bolt11[pos];
+    // Check if last character is a multiplier or digit
+    const last_char = amount_str[amount_str.len - 1];
+    const is_digit = last_char >= '0' and last_char <= '9';
 
-    return switch (multiplier) {
-        'm' => amount * 100_000_000,
-        'u' => amount * 100_000,
-        'n' => amount * 100,
-        'p' => amount / 10,
+    if (is_digit) {
+        // No multiplier means whole bitcoins (extremely rare but valid)
+        const amount = std.fmt.parseInt(u64, amount_str, 10) catch return null;
+        return amount * 100_000_000_000; // BTC to millisats
+    }
+
+    // Has multiplier - parse amount before it
+    if (amount_str.len < 2) return null; // Need at least one digit + multiplier
+    const amount = std.fmt.parseInt(u64, amount_str[0 .. amount_str.len - 1], 10) catch return null;
+
+    return switch (last_char) {
+        'm' => amount * 100_000_000, // milli-BTC to millisats
+        'u' => amount * 100_000, // micro-BTC to millisats
+        'n' => amount * 100, // nano-BTC to millisats
+        'p' => amount / 10, // pico-BTC to millisats (rounds down)
         else => null,
     };
 }
@@ -647,12 +674,24 @@ test "ZapReceipt.extractInvoiceAmount parses bolt11" {
 }
 
 test "parseBolt11Amount" {
+    // Basic multiplier tests (returns millisats)
     try std.testing.expectEqual(@as(?u64, 100_000_000), parseBolt11Amount("lnbc1m1rest"));
     try std.testing.expectEqual(@as(?u64, 1_000_000), parseBolt11Amount("lnbc10u1rest"));
     try std.testing.expectEqual(@as(?u64, 100_000), parseBolt11Amount("lnbc1u1rest"));
     try std.testing.expectEqual(@as(?u64, 1000), parseBolt11Amount("lnbc10n1rest"));
     try std.testing.expectEqual(@as(?u64, 1), parseBolt11Amount("lnbc10p1rest"));
+
+    // Real-world invoice amounts (from nostr-tools tests, converted to millisats)
+    try std.testing.expectEqual(@as(?u64, 400_000), parseBolt11Amount("lnbc4u1p5zcarnpp5djng98r73nxu66nxp6gndjkw24q7rdzgp7p80lt0gk4z3h3krkssdq9tfpygcqzzsxqzjcsp58hz3v5qefdm70g5fnm2cn6q9thzpu6m4f5wjqurhur5xzmf9vl3s9q"));
+    try std.testing.expectEqual(@as(?u64, 840_000_000), parseBolt11Amount("lnbc8400u1p5zcaz5pp5ltvyhtg4ed7sd8jurj28ugmavezkmqsadpe3t9npufpcrd0uet0scqzyssp5"));
+    try std.testing.expectEqual(@as(?u64, 21_000), parseBolt11Amount("lnbc210n1p5zcuaxpp52nn778cfk46md4ld0hdj2juuzvfrsrdaf4ek2k0yeensae07x2cqdq9tfpyg"));
+    try std.testing.expectEqual(@as(?u64, 89_964_000), parseBolt11Amount("lnbc899640n1p5zcuavpp5w72fqrf09286lq33vw364qryrq5nw60z4dhdx56f8w05xkx4massdq9"));
+
+    // Edge cases
     try std.testing.expect(parseBolt11Amount("invalid") == null);
+    try std.testing.expect(parseBolt11Amount("lnbc") == null); // Too short
+    try std.testing.expect(parseBolt11Amount("lntb10u1rest") == null); // Wrong network (testnet)
+    try std.testing.expect(parseBolt11Amount("lnbc1rest") == null); // No amount (just separator)
 }
 
 test "parseZapSplits" {
@@ -754,6 +793,15 @@ test "ZapRequest.validateServer rejects multiple e tags" {
 
     const request = ZapRequest.fromEvent(json).?;
     try std.testing.expectError(error.MultipleETags, request.validateServer());
+}
+
+test "ZapRequest.validateServer rejects multiple P tags" {
+    const json =
+        \\{"kind":9734,"content":"","tags":[["relays","wss://r.com"],["p","04c915daefee38317fa734444acee390a8269fe5810b2241e5e6dd343dfbecc9"],["P","97c70a44366a6535c145b333f973ea86dfdc2d7a99da618c40c64705ad98e322"],["P","32e1827635450ebb3c5a7d12c1f8e7b2b514439ac10a67eef3d9fd9c5c68e245"]],"pubkey":"aaa","created_at":1,"id":"bbb","sig":"ccc"}
+    ;
+
+    const request = ZapRequest.fromEvent(json).?;
+    try std.testing.expectError(error.MultiplePTags, request.validateServer());
 }
 
 test "ZapRequest.validateServer accepts valid request" {
