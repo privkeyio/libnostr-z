@@ -10,6 +10,7 @@ A Zig library for the Nostr protocol.
 | NIP | Description | Implementation |
 |-----|-------------|----------------|
 | [01](https://github.com/nostr-protocol/nips/blob/master/01.md) | Basic Protocol | Events, filters, client/relay messages |
+| [06](https://github.com/nostr-protocol/nips/blob/master/06.md) | Basic Key Derivation | `nip06.keypairFromMnemonic` |
 | [09](https://github.com/nostr-protocol/nips/blob/master/09.md) | Event Deletion | `isDeletion`, `getDeletionIds` |
 | [16](https://github.com/nostr-protocol/nips/blob/master/16.md) | Replaceable Events | `Replaceable`, `kindType` (includes addressable) |
 | [19](https://github.com/nostr-protocol/nips/blob/master/19.md) | bech32 Entities | npub, nsec, nprofile, nevent, naddr |
@@ -52,6 +53,10 @@ defer nostr.cleanup();
 
 // Generate keypair
 const keypair = nostr.Keypair.generate();
+
+// Or derive from mnemonic (NIP-06)
+const mnemonic = "leader monkey parrot ring guide accident before fence cannon height naive bean";
+const derived = try nostr.nip06.keypairFromMnemonic(mnemonic, "", 0);
 
 // Build and sign an event
 var builder = nostr.EventBuilder{};
