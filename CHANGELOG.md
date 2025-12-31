@@ -9,7 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- NIP-28 public chat support
+- NIP-57 Lightning Zaps support
+- NIP-06 mnemonic key derivation
+- NIP-86 relay management protocol support
+- High-level relay abstraction with connection management
+- Multi-relay pool with thread-safe connection management
 - Thread-safe message queue for multi-relay architecture
+
+### Changed
+
+- Added projects using libnostr-z to README
 
 ## [0.1.8] - 2025-12-17
 
