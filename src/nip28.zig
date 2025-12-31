@@ -64,7 +64,7 @@ pub fn parseReplyRef(event_json: []const u8) ?[32]u8 {
     return null;
 }
 
-pub fn parseHiddenEventId(event_json: []const u8) ?[32]u8 {
+pub fn parseChannelMetadataRef(event_json: []const u8) ?[32]u8 {
     var iter = ETagIterator.init(event_json);
     if (iter.next()) |tag| {
         var out: [32]u8 = undefined;
@@ -72,6 +72,10 @@ pub fn parseHiddenEventId(event_json: []const u8) ?[32]u8 {
         return out;
     }
     return null;
+}
+
+pub fn parseHiddenEventId(event_json: []const u8) ?[32]u8 {
+    return parseChannelMetadataRef(event_json);
 }
 
 pub fn parseMutedPubkey(event_json: []const u8) ?[32]u8 {
@@ -250,6 +254,16 @@ test "parseReplyRef" {
     const ref = parseReplyRef(json).?;
     var expected: [32]u8 = undefined;
     @memset(&expected, 0xbb);
+    try std.testing.expectEqualSlices(u8, &expected, &ref);
+}
+
+test "parseChannelMetadataRef" {
+    const json =
+        \\{"kind":41,"tags":[["e","eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","wss://relay.example.com"]]}
+    ;
+    const ref = parseChannelMetadataRef(json).?;
+    var expected: [32]u8 = undefined;
+    @memset(&expected, 0xee);
     try std.testing.expectEqualSlices(u8, &expected, &ref);
 }
 
