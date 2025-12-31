@@ -21,6 +21,7 @@ A Zig library for the Nostr protocol.
 | [46](https://github.com/nostr-protocol/nips/blob/master/46.md) | Remote Signing | `nip46` module |
 | [47](https://github.com/nostr-protocol/nips/blob/master/47.md) | Wallet Connect | `nwc` module |
 | [50](https://github.com/nostr-protocol/nips/blob/master/50.md) | Search | Filter `search` field |
+| [57](https://github.com/nostr-protocol/nips/blob/master/57.md) | Lightning Zaps | `nip57` module |
 | [63](https://github.com/nostr-protocol/nips/blob/master/63.md) | Index Keys | `IndexKeys` utilities |
 | [65](https://github.com/nostr-protocol/nips/blob/master/65.md) | Relay List Metadata | `relay_metadata` module |
 | [70](https://github.com/nostr-protocol/nips/blob/master/70.md) | Protected Events | `isProtected` |
