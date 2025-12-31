@@ -1,5 +1,6 @@
 const std = @import("std");
 const crypto = @import("crypto.zig");
+const Keypair = @import("builder.zig").Keypair;
 
 const ec = @cImport({
     @cInclude("openssl/ec.h");
@@ -202,7 +203,7 @@ fn isZero(key: *const [32]u8) bool {
     return true;
 }
 
-pub fn keypairFromMnemonic(mnemonic: []const u8, passphrase: []const u8, account: u32) !struct { secret_key: [32]u8, public_key: [32]u8 } {
+pub fn keypairFromMnemonic(mnemonic: []const u8, passphrase: []const u8, account: u32) !Keypair {
     var seed: [64]u8 = undefined;
     defer @memset(&seed, 0);
     try mnemonicToSeed(mnemonic, passphrase, &seed);
@@ -239,8 +240,7 @@ pub fn keypairFromMnemonic(mnemonic: []const u8, passphrase: []const u8, account
     var public_key: [32]u8 = undefined;
     crypto.getPublicKey(&child_key, &public_key) catch return Error.InvalidKey;
 
-    const result_key = child_key;
-    return .{ .secret_key = result_key, .public_key = public_key };
+    return Keypair{ .secret_key = child_key, .public_key = public_key };
 }
 
 test "nip06 test vector 1" {
