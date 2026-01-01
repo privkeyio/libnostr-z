@@ -23,6 +23,7 @@
 //! - `nip43.zig` - NIP-43 Relay Access Metadata
 //! - `nip46.zig` - NIP-46 Nostr Remote Signing
 //! - `nip05.zig` - NIP-05 DNS-based internet identifier verification
+//! - `nip10.zig` - NIP-10 Text Notes and Threads
 //! - `clink.zig` - CLINK protocol types and error codes
 //! - `joinstr.zig` - NIP Joinstr (Kind 2022) coinjoin pools
 //! - `message_queue.zig` - Thread-safe message queue for multi-relay architecture
@@ -45,6 +46,7 @@ pub const nip43 = @import("nip43.zig");
 pub const nip46 = @import("nip46.zig");
 pub const nip05 = @import("nip05.zig");
 pub const nip06 = @import("nip06.zig");
+pub const nip10 = @import("nip10.zig");
 pub const nip49 = @import("nip49.zig");
 pub const nip57 = @import("nip57.zig");
 pub const nip59 = @import("nip59.zig");
@@ -132,6 +134,7 @@ test {
     _ = @import("nip46.zig");
     _ = @import("nip05.zig");
     _ = @import("nip06.zig");
+    _ = @import("nip10.zig");
     _ = @import("nip49.zig");
     _ = @import("nip57.zig");
     _ = @import("nip59.zig");
