@@ -26,6 +26,7 @@ A Zig library for the Nostr protocol.
 | [45](https://github.com/nostr-protocol/nips/blob/master/45.md) | Event Counts | COUNT message |
 | [46](https://github.com/nostr-protocol/nips/blob/master/46.md) | Remote Signing | `nip46` module |
 | [47](https://github.com/nostr-protocol/nips/blob/master/47.md) | Wallet Connect | `nwc` module |
+| [49](https://github.com/nostr-protocol/nips/blob/master/49.md) | Private Key Encryption | `nip49` module |
 | [50](https://github.com/nostr-protocol/nips/blob/master/50.md) | Search | Filter `search` field |
 | [57](https://github.com/nostr-protocol/nips/blob/master/57.md) | Lightning Zaps | `nip57` module |
 | [63](https://github.com/nostr-protocol/nips/blob/master/63.md) | Index Keys | `IndexKeys` utilities |
