@@ -30,6 +30,7 @@ A Zig library for the Nostr protocol.
 | [49](https://github.com/nostr-protocol/nips/blob/master/49.md) | Private Key Encryption | `nip49` module |
 | [50](https://github.com/nostr-protocol/nips/blob/master/50.md) | Search | Filter `search` field |
 | [57](https://github.com/nostr-protocol/nips/blob/master/57.md) | Lightning Zaps | `nip57` module |
+| [59](https://github.com/nostr-protocol/nips/blob/master/59.md) | Gift Wrap | `nip59` module |
 | [63](https://github.com/nostr-protocol/nips/blob/master/63.md) | Index Keys | `IndexKeys` utilities |
 | [65](https://github.com/nostr-protocol/nips/blob/master/65.md) | Relay List Metadata | `relay_metadata` module |
 | [70](https://github.com/nostr-protocol/nips/blob/master/70.md) | Protected Events | `isProtected` |

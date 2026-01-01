@@ -30,6 +30,7 @@
 //! - `relay.zig` - High-level relay abstraction with connection management
 //! - `signer.zig` - Abstract signer interface for NIP-07/NIP-46/hardware wallets
 //! - `nip27.zig` - NIP-27 Text Note References
+//! - `nip59.zig` - NIP-59 Gift Wrap
 
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
@@ -46,6 +47,7 @@ pub const nip05 = @import("nip05.zig");
 pub const nip06 = @import("nip06.zig");
 pub const nip49 = @import("nip49.zig");
 pub const nip57 = @import("nip57.zig");
+pub const nip59 = @import("nip59.zig");
 pub const nip86 = @import("nip86.zig");
 pub const clink = @import("clink.zig");
 pub const joinstr = @import("joinstr.zig");
@@ -132,6 +134,7 @@ test {
     _ = @import("nip06.zig");
     _ = @import("nip49.zig");
     _ = @import("nip57.zig");
+    _ = @import("nip59.zig");
     _ = @import("nip86.zig");
     _ = @import("clink.zig");
     _ = @import("joinstr.zig");
