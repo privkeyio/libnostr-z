@@ -1,6 +1,24 @@
 const std = @import("std");
 const bech32 = @import("bech32.zig");
 
+fn findNostrPrefix(content: []const u8) ?usize {
+    const prefix = "nostr:";
+    if (content.len < prefix.len) return null;
+    for (0..content.len - prefix.len + 1) |i| {
+        var match = true;
+        for (prefix, 0..) |c, j| {
+            const ch = content[i + j];
+            const lower = if (ch >= 'A' and ch <= 'Z') ch + 32 else ch;
+            if (lower != c) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return i;
+    }
+    return null;
+}
+
 pub const Reference = struct {
     start: usize,
     end: usize,
@@ -27,7 +45,7 @@ pub const ReferenceIterator = struct {
     pub fn next(self: *ReferenceIterator) ?Reference {
         while (self.pos < self.content.len) {
             const remaining = self.content[self.pos..];
-            const idx = std.mem.indexOf(u8, remaining, "nostr:") orelse return null;
+            const idx = findNostrPrefix(remaining) orelse return null;
             const start = self.pos + idx;
             const uri_start = start + 6;
 
@@ -45,14 +63,11 @@ pub const ReferenceIterator = struct {
             const uri = self.content[uri_start..uri_end];
             self.pos = uri_end;
 
-            // Decode the bech32 identifier, but skip nsec for security.
-            // Users sometimes accidentally post their nsec, and NIP-27 parsers
-            // should not make it easy to extract secret keys from content.
-            // See: nostr-tools nip27.ts which explicitly ignores nsec.
             const decoded = blk: {
                 const d = bech32.decodeNostr(self.allocator, uri) catch null;
                 if (d) |decoded_val| {
                     if (decoded_val == .seckey) {
+                        decoded_val.deinit(self.allocator);
                         break :blk null;
                     }
                 }
@@ -73,8 +88,6 @@ fn findUriEnd(content: []const u8, start: usize) usize {
     var pos = start;
     while (pos < content.len) {
         const c = content[pos];
-        // Bech32 allows lowercase a-z, uppercase A-Z, and digits 0-9
-        // (but not mixed case - validation happens during decode)
         if ((c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9')) {
             pos += 1;
         } else {
@@ -89,7 +102,7 @@ pub fn findReferences(content: []const u8, allocator: std.mem.Allocator) Referen
 }
 
 pub fn hasReferences(content: []const u8) bool {
-    return std.mem.indexOf(u8, content, "nostr:") != null;
+    return findNostrPrefix(content) != null;
 }
 
 pub fn countReferences(content: []const u8) usize {
@@ -97,9 +110,16 @@ pub fn countReferences(content: []const u8) usize {
     var pos: usize = 0;
     while (pos < content.len) {
         const remaining = content[pos..];
-        const idx = std.mem.indexOf(u8, remaining, "nostr:") orelse break;
-        count += 1;
-        pos += idx + 6;
+        const idx = findNostrPrefix(remaining) orelse break;
+        const uri_start = pos + idx + 6;
+        if (uri_start >= content.len) break;
+        const uri_end = findUriEnd(content, uri_start);
+        if (uri_end > uri_start) {
+            count += 1;
+            pos = uri_end;
+        } else {
+            pos = uri_start;
+        }
     }
     return count;
 }
@@ -165,6 +185,8 @@ test "find nprofile reference" {
 
 test "hasReferences" {
     try std.testing.expect(hasReferences("hello nostr:npub1... world"));
+    try std.testing.expect(hasReferences("hello NOSTR:npub1... world"));
+    try std.testing.expect(hasReferences("hello Nostr:npub1... world"));
     try std.testing.expect(!hasReferences("hello world"));
 }
 
@@ -172,6 +194,8 @@ test "countReferences" {
     try std.testing.expectEqual(@as(usize, 0), countReferences("hello world"));
     try std.testing.expectEqual(@as(usize, 1), countReferences("hello nostr:npub1abc world"));
     try std.testing.expectEqual(@as(usize, 2), countReferences("nostr:npub1a and nostr:note1b"));
+    try std.testing.expectEqual(@as(usize, 1), countReferences("NOSTR:npub1abc"));
+    try std.testing.expectEqual(@as(usize, 0), countReferences("nostr: invalid"));
 }
 
 test "no references" {
@@ -207,7 +231,6 @@ test "reference at start" {
 }
 
 test "uppercase bech32 reference" {
-    // BIP-173 allows uppercase bech32 strings
     const content = "hello nostr:NPUB180CVV07TJDRRGPA0J7J7TMNYL2YR6YR7L8J4S3EVF6U64TH6GKWSYJH6W6 world";
     var iter = findReferences(content, std.testing.allocator);
 
@@ -225,23 +248,33 @@ test "uppercase bech32 reference" {
     try std.testing.expectEqualStrings("3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d", bech32.toHex(&pk, &hex));
 }
 
+test "uppercase NOSTR: prefix" {
+    const content = "hello NOSTR:npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6 world";
+    var iter = findReferences(content, std.testing.allocator);
+
+    const ref = iter.next().?;
+    defer {
+        var r = ref;
+        r.deinit(std.testing.allocator);
+    }
+
+    try std.testing.expectEqualStrings("npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6", ref.uri);
+    try std.testing.expect(ref.decoded != null);
+}
+
 test "mixed case bech32 rejected" {
-    // BIP-173 requires all-upper or all-lower, mixed case should fail decode
     const content = "nostr:Npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6";
     var iter = findReferences(content, std.testing.allocator);
 
     const ref = iter.next().?;
-    // Reference is found but decode fails due to mixed case
     try std.testing.expectEqualStrings("Npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6", ref.uri);
     try std.testing.expect(ref.decoded == null);
 }
 
 test "nostr: followed by space skipped" {
-    // "nostr:" without a valid bech32 identifier should be skipped
     const content = "nostr: hello nostr:npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6";
     var iter = findReferences(content, std.testing.allocator);
 
-    // The first "nostr: " is skipped, only the valid one is returned
     const ref = iter.next().?;
     defer {
         var r = ref;
@@ -253,30 +286,21 @@ test "nostr: followed by space skipped" {
 }
 
 test "consecutive nostr: patterns" {
-    // Test that we correctly handle "nostr:nostr:npub..."
     const content = "nostr:nostr:npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6";
     var iter = findReferences(content, std.testing.allocator);
 
-    // First match: "nostr" is parsed as URI but fails decode
     const ref1 = iter.next().?;
     try std.testing.expectEqualStrings("nostr", ref1.uri);
     try std.testing.expect(ref1.decoded == null);
-
-    // Iterator advances past the first match, missing the nested valid reference
-    // This is acceptable edge case behavior
     try std.testing.expect(iter.next() == null);
 }
 
 test "nsec references have null decoded for security" {
-    // nsec references should be found but NOT decoded, to prevent
-    // accidental exposure of secret keys that users post in content.
     const content = "oops nostr:nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5 leaked";
     var iter = findReferences(content, std.testing.allocator);
 
     const ref = iter.next().?;
-    // The reference is found (uri is captured)
     try std.testing.expectEqualStrings("nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5", ref.uri);
-    // But decoded is null - secret key is NOT exposed
     try std.testing.expect(ref.decoded == null);
     try std.testing.expect(iter.next() == null);
 }
