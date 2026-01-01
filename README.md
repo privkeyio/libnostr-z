@@ -10,6 +10,7 @@ A Zig library for the Nostr protocol.
 | NIP | Description | Implementation |
 |-----|-------------|----------------|
 | [01](https://github.com/nostr-protocol/nips/blob/master/01.md) | Basic Protocol | Events, filters, client/relay messages |
+| [05](https://github.com/nostr-protocol/nips/blob/master/05.md) | DNS Identifiers | `nip05` module |
 | [06](https://github.com/nostr-protocol/nips/blob/master/06.md) | Basic Key Derivation | `nip06.keypairFromMnemonic` |
 | [09](https://github.com/nostr-protocol/nips/blob/master/09.md) | Event Deletion | `isDeletion`, `getDeletionIds` |
 | [16](https://github.com/nostr-protocol/nips/blob/master/16.md) | Replaceable Events | `Replaceable`, `kindType` (includes addressable) |
