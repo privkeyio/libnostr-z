@@ -17,6 +17,7 @@ A Zig library for the Nostr protocol.
 | [28](https://github.com/nostr-protocol/nips/blob/master/28.md) | Public Chat | `nip28` module |
 | [40](https://github.com/nostr-protocol/nips/blob/master/40.md) | Expiration Timestamp | `isExpired` |
 | [42](https://github.com/nostr-protocol/nips/blob/master/42.md) | Authentication | `Auth` utilities, AUTH message |
+| [43](https://github.com/nostr-protocol/nips/blob/master/43.md) | Relay Access Metadata | `nip43` module |
 | [44](https://github.com/nostr-protocol/nips/blob/master/44.md) | Encrypted Payloads | `crypto.nip44Encrypt`, `crypto.nip44Decrypt` |
 | [45](https://github.com/nostr-protocol/nips/blob/master/45.md) | Event Counts | COUNT message |
 | [46](https://github.com/nostr-protocol/nips/blob/master/46.md) | Remote Signing | `nip46` module |
