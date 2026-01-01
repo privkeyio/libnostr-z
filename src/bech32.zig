@@ -109,7 +109,7 @@ fn createChecksum(hrp: []const u8, data: []const u5) [6]u5 {
 }
 
 pub fn encode(hrp: []const u8, data: []const u8, out: []u8) Error![]u8 {
-    var data5: [128]u5 = undefined;
+    var data5: [512]u5 = undefined;
     const data5_len = convertTo5Bit(data, &data5);
     const checksum = createChecksum(hrp, data5[0..data5_len]);
     const total_len = hrp.len + 1 + data5_len + 6;
@@ -560,68 +560,6 @@ fn decodeTlvManage(allocator: std.mem.Allocator, data: []const u8) !Decoded {
 pub fn toHex(bytes: *const [32]u8, out: *[64]u8) []const u8 {
     out.* = std.fmt.bytesToHex(bytes.*, .lower);
     return out[0..];
-}
-
-fn convertBitsTo5(input: []const u8, out: []u5) usize {
-    var acc: u32 = 0;
-    var bits: u32 = 0;
-    var out_idx: usize = 0;
-
-    for (input) |v| {
-        acc = (acc << 8) | v;
-        bits += 8;
-        while (bits >= 5) {
-            bits -= 5;
-            out[out_idx] = @truncate(acc >> @intCast(bits));
-            out_idx += 1;
-        }
-    }
-    if (bits > 0) {
-        out[out_idx] = @truncate(acc << @intCast(5 - bits));
-        out_idx += 1;
-    }
-    return out_idx;
-}
-
-fn createChecksum(hrp: []const u8, data: []const u5) [6]u5 {
-    var values: [256]u5 = undefined;
-    hrpExpand(hrp, values[0 .. hrp.len * 2 + 1]);
-    const exp_len = hrp.len * 2 + 1;
-    @memcpy(values[exp_len .. exp_len + data.len], data);
-    @memset(values[exp_len + data.len .. exp_len + data.len + 6], 0);
-    const pm = polymod(values[0 .. exp_len + data.len + 6]) ^ 1;
-    var checksum: [6]u5 = undefined;
-    for (0..6) |i| {
-        checksum[i] = @truncate(pm >> @intCast(5 * (5 - i)));
-    }
-    return checksum;
-}
-
-pub fn encode(hrp: []const u8, data: []const u8, out: []u8) Error![]const u8 {
-    if (hrp.len == 0) return Error.InvalidLength;
-    const data5_len = (data.len * 8 + 4) / 5;
-    if (out.len < hrp.len + 1 + data5_len + 6) return Error.BufferTooSmall;
-
-    var data5: [512]u5 = undefined;
-    const d5_len = convertBitsTo5(data, &data5);
-    const checksum = createChecksum(hrp, data5[0..d5_len]);
-
-    var idx: usize = 0;
-    for (hrp) |c| {
-        out[idx] = std.ascii.toLower(c);
-        idx += 1;
-    }
-    out[idx] = '1';
-    idx += 1;
-    for (data5[0..d5_len]) |v| {
-        out[idx] = charset[v];
-        idx += 1;
-    }
-    for (checksum) |v| {
-        out[idx] = charset[v];
-        idx += 1;
-    }
-    return out[0..idx];
 }
 
 test "decode npub" {
