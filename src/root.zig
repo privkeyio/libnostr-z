@@ -34,6 +34,7 @@
 //! - `pool.zig` - Multi-relay pool with event deduplication and parallel queries
 //! - `relay.zig` - High-level relay abstraction with connection management
 //! - `signer.zig` - Abstract signer interface for NIP-07/NIP-46/hardware wallets
+//! - `nip11.zig` - NIP-11 Relay Information Document
 
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
@@ -63,6 +64,7 @@ pub const message_queue = @import("message_queue.zig");
 pub const pool = @import("pool.zig");
 pub const relay = @import("relay.zig");
 pub const signer = @import("signer.zig");
+pub const nip11 = @import("nip11.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -153,4 +155,5 @@ test {
     _ = @import("pool.zig");
     _ = @import("relay.zig");
     _ = @import("signer.zig");
+    _ = @import("nip11.zig");
 }
