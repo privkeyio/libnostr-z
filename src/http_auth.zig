@@ -120,7 +120,8 @@ pub const HttpAuth = struct {
         time_window: ?i64,
     ) ValidationError![32]u8 {
         // Parse and verify the event signature
-        const event = Event.parse(json) catch return error.InvalidEvent;
+        var event = Event.parse(json) catch return error.InvalidEvent;
+        defer event.deinit();
         event.validate() catch return error.SignatureInvalid;
 
         // Now validate NIP-98 specific fields

@@ -250,19 +250,16 @@ pub const KindsIterator = struct {
             const c = self.json[self.pos];
             if (c == ']') return null;
 
-            // Check for nested array (range)
             if (c == '[') {
                 self.pos += 1;
                 const start_val = self.parseNumber() orelse continue;
                 self.skipWhitespaceAndComma();
                 const end_val = self.parseNumber() orelse continue;
-                // Skip to closing bracket
                 while (self.pos < self.json.len and self.json[self.pos] != ']') : (self.pos += 1) {}
                 if (self.pos < self.json.len) self.pos += 1;
                 return KindEntry{ .range = .{ .start = start_val, .end = end_val } };
             }
 
-            // Check for single number
             if (c >= '0' and c <= '9') {
                 const num = self.parseNumber() orelse continue;
                 return KindEntry{ .single = num };

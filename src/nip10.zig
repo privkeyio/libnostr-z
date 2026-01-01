@@ -222,8 +222,6 @@ pub const Nip10 = struct {
             }
         }
 
-        // For positional tags: 1 e-tag is a reply to root, 2+ e-tags means last is reply
-        // Per NIP-10: "One 'e' tag: The id of the event to which this event is a reply."
         if (e_tag_count >= 1) return last_e_tag;
         return null;
     }
@@ -435,7 +433,6 @@ test "getReply with positional tags (deprecated)" {
 }
 
 test "getReply returns same event for single positional e-tag" {
-    // Per NIP-10: "One 'e' tag: The id of the event to which this event is a reply."
     const json =
         \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["e","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]]}
     ;
@@ -500,7 +497,6 @@ test "extractThreadInfo with positional tags (deprecated)" {
 }
 
 test "extractThreadInfo with single positional e-tag" {
-    // Per NIP-10: A single positional e-tag is both root and reply target (direct reply to root)
     const json =
         \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"test","tags":[["e","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]]}
     ;

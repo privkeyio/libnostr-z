@@ -297,16 +297,12 @@ fn parseHex32(hex_str: []const u8) ?[32]u8 {
 }
 
 /// Validates event coordinate format: kind:pubkey:d-tag
-/// Per NIP-01, format is "<kind>:<pubkey>:<d-tag>"
 fn isValidEventCoordinate(coord: []const u8) bool {
-    // Find first colon (after kind)
     const first_colon = std.mem.indexOfScalar(u8, coord, ':') orelse return false;
     if (first_colon == 0) return false;
 
-    // Parse kind (must be valid integer)
     _ = std.fmt.parseInt(u32, coord[0..first_colon], 10) catch return false;
 
-    // Find second colon (after pubkey)
     const rest = coord[first_colon + 1 ..];
     const second_colon = std.mem.indexOfScalar(u8, rest, ':') orelse return false;
 

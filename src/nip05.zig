@@ -92,19 +92,16 @@ pub const Response = struct {
         pos: usize,
 
         pub fn next(self: *RelayIterator) ?[]const u8 {
-            // Skip to the opening quote of the next string
             while (self.pos < self.json.len and self.json[self.pos] != '"') {
                 if (self.json[self.pos] == ']') return null;
                 self.pos += 1;
             }
             if (self.pos >= self.json.len) return null;
-            self.pos += 1; // Skip opening quote
+            self.pos += 1;
 
             const start = self.pos;
-            // Scan for closing quote, handling escape sequences
             while (self.pos < self.json.len) {
                 if (self.json[self.pos] == '\\') {
-                    // Skip escape sequence (backslash + next char)
                     self.pos += 2;
                     continue;
                 }
@@ -114,7 +111,7 @@ pub const Response = struct {
             if (self.pos >= self.json.len) return null;
 
             const result = self.json[start..self.pos];
-            self.pos += 1; // Skip closing quote
+            self.pos += 1;
             return result;
         }
     };
