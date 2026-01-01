@@ -598,7 +598,6 @@ test "ReactionInfo.fromEvent uses last p tag per NIP-25 spec" {
     try event_mod.init();
     defer event_mod.cleanup();
 
-    // Per NIP-25: "the target event pubkey should be last of the p tags"
     const json =
         \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":7,"created_at":1700000000,"content":"+","tags":[["p","1111111111111111111111111111111111111111111111111111111111111111"],["e","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],["p","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]]}
     ;
