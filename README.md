@@ -13,7 +13,9 @@ A Zig library for the Nostr protocol.
 | [05](https://github.com/nostr-protocol/nips/blob/master/05.md) | DNS Identifiers | `nip05` module |
 | [06](https://github.com/nostr-protocol/nips/blob/master/06.md) | Basic Key Derivation | `nip06.keypairFromMnemonic` |
 | [09](https://github.com/nostr-protocol/nips/blob/master/09.md) | Event Deletion | `isDeletion`, `getDeletionIds` |
+| [13](https://github.com/nostr-protocol/nips/blob/master/13.md) | Proof of Work | `pow` module |
 | [16](https://github.com/nostr-protocol/nips/blob/master/16.md) | Replaceable Events | `Replaceable`, `kindType` (includes addressable) |
+| [17](https://github.com/nostr-protocol/nips/blob/master/17.md) | Private Direct Messages | `nip17` module |
 | [19](https://github.com/nostr-protocol/nips/blob/master/19.md) | bech32 Entities | npub, nsec, nprofile, nevent, naddr |
 | [28](https://github.com/nostr-protocol/nips/blob/master/28.md) | Public Chat | `nip28` module |
 | [40](https://github.com/nostr-protocol/nips/blob/master/40.md) | Expiration Timestamp | `isExpired` |
