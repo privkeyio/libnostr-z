@@ -42,6 +42,7 @@ A Zig library for the Nostr protocol.
 | [63](https://github.com/nostr-protocol/nips/blob/master/63.md) | Index Keys | `IndexKeys` utilities |
 | [65](https://github.com/nostr-protocol/nips/blob/master/65.md) | Relay List Metadata | `relay_metadata` module |
 | [70](https://github.com/nostr-protocol/nips/blob/master/70.md) | Protected Events | `isProtected` |
+| [75](https://github.com/nostr-protocol/nips/blob/master/75.md) | Zap Goals | `zap_goal` module |
 | [77](https://github.com/nostr-protocol/nips/blob/master/77.md) | Negentropy | Full protocol support |
 | [86](https://github.com/nostr-protocol/nips/blob/master/86.md) | Relay Management API | `nip86` module |
 | [98](https://github.com/nostr-protocol/nips/blob/master/98.md) | HTTP Auth | `http_auth` module |
