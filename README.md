@@ -17,6 +17,7 @@ A Zig library for the Nostr protocol.
 | [16](https://github.com/nostr-protocol/nips/blob/master/16.md) | Replaceable Events | `Replaceable`, `kindType` (includes addressable) |
 | [17](https://github.com/nostr-protocol/nips/blob/master/17.md) | Private Direct Messages | `nip17` module |
 | [19](https://github.com/nostr-protocol/nips/blob/master/19.md) | bech32 Entities | npub, nsec, nprofile, nevent, naddr |
+| [21](https://github.com/nostr-protocol/nips/blob/master/21.md) | nostr: URI Scheme | `nip21` module |
 | [28](https://github.com/nostr-protocol/nips/blob/master/28.md) | Public Chat | `nip28` module |
 | [40](https://github.com/nostr-protocol/nips/blob/master/40.md) | Expiration Timestamp | `isExpired` |
 | [42](https://github.com/nostr-protocol/nips/blob/master/42.md) | Authentication | `Auth` utilities, AUTH message |
