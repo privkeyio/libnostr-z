@@ -24,6 +24,7 @@
 //! - `message_queue.zig` - Thread-safe message queue for multi-relay architecture
 //! - `pool.zig` - Multi-relay pool with event deduplication and parallel queries
 //! - `relay.zig` - High-level relay abstraction with connection management
+//! - `signer.zig` - Abstract signer interface for NIP-07/NIP-46/hardware wallets
 
 pub const crypto = @import("crypto.zig");
 pub const negentropy = @import("negentropy.zig");
@@ -42,6 +43,7 @@ pub const ws = @import("ws/ws.zig");
 pub const message_queue = @import("message_queue.zig");
 pub const pool = @import("pool.zig");
 pub const relay = @import("relay.zig");
+pub const signer = @import("signer.zig");
 
 const event_mod = @import("event.zig");
 const filter_mod = @import("filter.zig");
@@ -121,4 +123,5 @@ test {
     _ = @import("message_queue.zig");
     _ = @import("pool.zig");
     _ = @import("relay.zig");
+    _ = @import("signer.zig");
 }
