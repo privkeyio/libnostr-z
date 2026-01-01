@@ -24,6 +24,7 @@ A Zig library for the Nostr protocol.
 | [25](https://github.com/nostr-protocol/nips/blob/master/25.md) | Reactions | `nip25` module |
 | [27](https://github.com/nostr-protocol/nips/blob/master/27.md) | Text Note References | `nip27` module |
 | [28](https://github.com/nostr-protocol/nips/blob/master/28.md) | Public Chat | `nip28` module |
+| [29](https://github.com/nostr-protocol/nips/blob/master/29.md) | Relay-based Groups | `relay_groups` module |
 | [30](https://github.com/nostr-protocol/nips/blob/master/30.md) | Custom Emoji | `custom_emoji` module |
 | [39](https://github.com/nostr-protocol/nips/blob/master/39.md) | External Identities | `external_identities` module |
 | [40](https://github.com/nostr-protocol/nips/blob/master/40.md) | Expiration Timestamp | `isExpired` |
