@@ -47,6 +47,7 @@ A Zig library for the Nostr protocol.
 | [86](https://github.com/nostr-protocol/nips/blob/master/86.md) | Relay Management API | `nip86` module |
 | [94](https://github.com/nostr-protocol/nips/blob/master/94.md) | File Metadata | `file_metadata` module |
 | [98](https://github.com/nostr-protocol/nips/blob/master/98.md) | HTTP Auth | `http_auth` module |
+| [99](https://github.com/nostr-protocol/nips/blob/master/99.md) | Classified Listings | `classified_listing` module |
 | [2022](https://gitlab.com/invincible-privacy/joinstr) | Joinstr Coinjoin Pools | `joinstr` module |
 | [CLINK](https://github.com/shocknet/CLINK) | Common Lightning Interface for Nostr Keys | `clink` module |
 
