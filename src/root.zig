@@ -30,6 +30,7 @@
 //! - `nip10.zig` - NIP-10 Text Notes and Threads
 //! - `nip18.zig` - NIP-18 Reposts
 //! - `nip59.zig` - NIP-59 Gift Wrap
+//! - `dlc_oracle.zig` - NIP-88 DLC Oracle announcements and attestations
 //! - `clink.zig` - CLINK protocol types and error codes
 //! - `joinstr.zig` - NIP Joinstr (Kind 2022) coinjoin pools
 //! - `message_queue.zig` - Thread-safe message queue for multi-relay architecture
@@ -66,6 +67,7 @@ pub const nip49 = @import("nip49.zig");
 pub const nip57 = @import("nip57.zig");
 pub const nip59 = @import("nip59.zig");
 pub const nip86 = @import("nip86.zig");
+pub const dlc_oracle = @import("dlc_oracle.zig");
 pub const clink = @import("clink.zig");
 pub const joinstr = @import("joinstr.zig");
 pub const custom_emoji = @import("custom_emoji.zig");
@@ -166,6 +168,7 @@ test {
     _ = @import("nip57.zig");
     _ = @import("nip59.zig");
     _ = @import("nip86.zig");
+    _ = @import("dlc_oracle.zig");
     _ = @import("clink.zig");
     _ = @import("joinstr.zig");
     _ = @import("custom_emoji.zig");
