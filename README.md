@@ -45,6 +45,7 @@ A Zig library for the Nostr protocol.
 | [75](https://github.com/nostr-protocol/nips/blob/master/75.md) | Zap Goals | `zap_goal` module |
 | [77](https://github.com/nostr-protocol/nips/blob/master/77.md) | Negentropy | Full protocol support |
 | [86](https://github.com/nostr-protocol/nips/blob/master/86.md) | Relay Management API | `nip86` module |
+| [DLC](https://github.com/nostr-protocol/nips/blob/0d0097dd5f98aae6d5619b9ae2054ede7fbc830f/88.md) | Discreet Log Contract Oracles | `dlc_oracle` module |
 | [94](https://github.com/nostr-protocol/nips/blob/master/94.md) | File Metadata | `file_metadata` module |
 | [98](https://github.com/nostr-protocol/nips/blob/master/98.md) | HTTP Auth | `http_auth` module |
 | [99](https://github.com/nostr-protocol/nips/blob/master/99.md) | Classified Listings | `classified_listing` module |
