@@ -10,6 +10,7 @@ A Zig library for the Nostr protocol.
 | NIP | Description | Implementation |
 |-----|-------------|----------------|
 | [01](https://github.com/nostr-protocol/nips/blob/master/01.md) | Basic Protocol | Events, filters, client/relay messages |
+| [04](https://github.com/nostr-protocol/nips/blob/master/04.md) | Encrypted Direct Messages | `nip04` module (deprecated, use NIP-17) |
 | [05](https://github.com/nostr-protocol/nips/blob/master/05.md) | DNS Identifiers | `nip05` module |
 | [06](https://github.com/nostr-protocol/nips/blob/master/06.md) | Basic Key Derivation | `nip06.keypairFromMnemonic` |
 | [09](https://github.com/nostr-protocol/nips/blob/master/09.md) | Event Deletion | `isDeletion`, `getDeletionIds` |
@@ -45,12 +46,12 @@ A Zig library for the Nostr protocol.
 | [75](https://github.com/nostr-protocol/nips/blob/master/75.md) | Zap Goals | `zap_goal` module |
 | [77](https://github.com/nostr-protocol/nips/blob/master/77.md) | Negentropy | Full protocol support |
 | [86](https://github.com/nostr-protocol/nips/blob/master/86.md) | Relay Management API | `nip86` module |
-| [DLC](https://github.com/nostr-protocol/nips/blob/0d0097dd5f98aae6d5619b9ae2054ede7fbc830f/88.md) | Discreet Log Contract Oracles | `dlc_oracle` module |
 | [94](https://github.com/nostr-protocol/nips/blob/master/94.md) | File Metadata | `file_metadata` module |
 | [98](https://github.com/nostr-protocol/nips/blob/master/98.md) | HTTP Auth | `http_auth` module |
 | [99](https://github.com/nostr-protocol/nips/blob/master/99.md) | Classified Listings | `classified_listing` module |
 | [2022](https://gitlab.com/invincible-privacy/joinstr) | Joinstr Coinjoin Pools | `joinstr` module |
 | [CLINK](https://github.com/shocknet/CLINK) | Common Lightning Interface for Nostr Keys | `clink` module |
+| [DLC](https://github.com/nostr-protocol/nips/blob/0d0097dd5f98aae6d5619b9ae2054ede7fbc830f/88.md) | Discreet Log Contract Oracles | `dlc_oracle` module |
 
 ## Build
 
