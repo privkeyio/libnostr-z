@@ -1,6 +1,6 @@
 .{
     .name = .nostr,
-    .version = "0.1.8",
+    .version = "0.1.9",
     .fingerprint = 0x208aa38f708e8e25,
     .dependencies = .{
         .noscrypt = .{
