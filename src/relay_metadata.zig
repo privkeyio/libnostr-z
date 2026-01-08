@@ -126,101 +126,25 @@ const RelayTagIterator = struct {
 
     fn next(self: *RelayTagIterator) ?Entry {
         while (self.pos < self.json.len) {
-            const tag_start = self.findBracket('[') orelse return null;
-            const saved_pos = self.pos;
-            self.pos = tag_start + 1;
-            const tag_end = self.findBracket(']') orelse {
-                self.pos = saved_pos;
-                return null;
-            };
+            const tag_start = utils.findBracketInJson(self.json, self.pos, '[') orelse return null;
+            const tag_end = utils.findBracketInJson(self.json, tag_start + 1, ']') orelse return null;
             self.pos = tag_end + 1;
 
             const tag_content = self.json[tag_start + 1 .. tag_end];
-            if (self.parseRTag(tag_content)) |entry| {
-                return entry;
-            }
-        }
-        return null;
-    }
+            const strings = utils.parseTagStrings(tag_content, 3) orelse continue;
+            if (!std.mem.eql(u8, strings[0], "r")) continue;
+            if (strings[1].len == 0) continue;
 
-    fn findBracket(self: *RelayTagIterator, bracket: u8) ?usize {
-        var in_string = false;
-        var escape = false;
-
-        while (self.pos < self.json.len) {
-            const c = self.json[self.pos];
-
-            if (escape) {
-                escape = false;
-                self.pos += 1;
-                continue;
+            var marker: RelayMarker = .read_write;
+            if (strings[2].len > 0) {
+                if (std.mem.eql(u8, strings[2], "read")) {
+                    marker = .read;
+                } else if (std.mem.eql(u8, strings[2], "write")) {
+                    marker = .write;
+                }
             }
 
-            if (c == '\\' and in_string) {
-                escape = true;
-                self.pos += 1;
-                continue;
-            }
-
-            if (c == '"') {
-                in_string = !in_string;
-                self.pos += 1;
-                continue;
-            }
-
-            if (!in_string and c == bracket) {
-                const found = self.pos;
-                self.pos += 1;
-                return found;
-            }
-
-            self.pos += 1;
-        }
-        return null;
-    }
-
-    fn parseRTag(self: *const RelayTagIterator, content: []const u8) ?Entry {
-        _ = self;
-        var strings: [3][]const u8 = undefined;
-        var count: usize = 0;
-
-        var i: usize = 0;
-        while (i < content.len and count < 3) {
-            const quote_start = std.mem.indexOfPos(u8, content, i, "\"") orelse break;
-            const str_start = quote_start + 1;
-            const quote_end = findStringEnd(content, str_start) orelse break;
-            strings[count] = content[str_start..quote_end];
-            count += 1;
-            i = quote_end + 1;
-        }
-
-        if (count < 2) return null;
-        if (!std.mem.eql(u8, strings[0], "r")) return null;
-
-        const url = strings[1];
-        if (url.len == 0) return null;
-
-        var marker: RelayMarker = .read_write;
-        if (count >= 3) {
-            if (std.mem.eql(u8, strings[2], "read")) {
-                marker = .read;
-            } else if (std.mem.eql(u8, strings[2], "write")) {
-                marker = .write;
-            }
-        }
-
-        return .{ .url = url, .marker = marker };
-    }
-
-    fn findStringEnd(content: []const u8, start: usize) ?usize {
-        var i = start;
-        while (i < content.len) {
-            if (content[i] == '\\' and i + 1 < content.len) {
-                i += 2;
-                continue;
-            }
-            if (content[i] == '"') return i;
-            i += 1;
+            return .{ .url = strings[1], .marker = marker };
         }
         return null;
     }

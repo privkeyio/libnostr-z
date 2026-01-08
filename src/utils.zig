@@ -397,6 +397,95 @@ pub fn searchMatches(query: []const u8, content: []const u8) bool {
     return true;
 }
 
+pub fn percentDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+    var result: std.ArrayListUnmanaged(u8) = .{};
+    errdefer result.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < input.len) {
+        if (input[i] == '%' and i + 2 < input.len) {
+            const byte = std.fmt.parseInt(u8, input[i + 1 .. i + 3], 16) catch {
+                try result.append(allocator, input[i]);
+                i += 1;
+                continue;
+            };
+            try result.append(allocator, byte);
+            i += 3;
+        } else if (input[i] == '+') {
+            try result.append(allocator, ' ');
+            i += 1;
+        } else {
+            try result.append(allocator, input[i]);
+            i += 1;
+        }
+    }
+    return result.toOwnedSlice(allocator);
+}
+
+pub fn percentEncode(writer: anytype, input: []const u8) !void {
+    for (input) |c| {
+        if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~') {
+            try writer.writeByte(c);
+        } else {
+            try writer.print("%{X:0>2}", .{c});
+        }
+    }
+}
+
+pub fn findBracketInJson(json: []const u8, start: usize, bracket: u8) ?usize {
+    var pos = start;
+    var in_string = false;
+    var escape = false;
+
+    while (pos < json.len) {
+        const c = json[pos];
+
+        if (escape) {
+            escape = false;
+            pos += 1;
+            continue;
+        }
+
+        if (c == '\\' and in_string) {
+            escape = true;
+            pos += 1;
+            continue;
+        }
+
+        if (c == '"') {
+            in_string = !in_string;
+            pos += 1;
+            continue;
+        }
+
+        if (!in_string and c == bracket) {
+            return pos;
+        }
+
+        pos += 1;
+    }
+    return null;
+}
+
+pub fn parseTagStrings(content: []const u8, comptime max_strings: usize) ?[max_strings][]const u8 {
+    var strings: [max_strings][]const u8 = undefined;
+    @memset(&strings, "");
+    var str_count: usize = 0;
+
+    var i: usize = 0;
+    while (i < content.len and str_count < max_strings) {
+        const quote_start = std.mem.indexOfPos(u8, content, i, "\"") orelse break;
+        const str_start = quote_start + 1;
+        const quote_end = findStringEnd(content, str_start) orelse break;
+        strings[str_count] = content[str_start..quote_end];
+        str_count += 1;
+        i = quote_end + 1;
+    }
+
+    if (str_count < 1) return null;
+    return strings;
+}
+
 test "containsInsensitive basic" {
     try std.testing.expect(containsInsensitive("Hello World", "hello"));
     try std.testing.expect(containsInsensitive("Hello World", "WORLD"));

@@ -150,93 +150,16 @@ const EmojiTagIterator = struct {
 
     fn next(self: *EmojiTagIterator) ?Entry {
         while (self.pos < self.json.len) {
-            const tag_start = self.findBracket('[') orelse return null;
-            const saved_pos = self.pos;
-            self.pos = tag_start + 1;
-            const tag_end = self.findBracket(']') orelse {
-                self.pos = saved_pos;
-                return null;
-            };
+            const tag_start = utils.findBracketInJson(self.json, self.pos, '[') orelse return null;
+            const tag_end = utils.findBracketInJson(self.json, tag_start + 1, ']') orelse return null;
             self.pos = tag_end + 1;
 
             const tag_content = self.json[tag_start + 1 .. tag_end];
-            if (self.parseEmojiTag(tag_content)) |entry| {
-                return entry;
-            }
-        }
-        return null;
-    }
+            const strings = utils.parseTagStrings(tag_content, 3) orelse continue;
+            if (!std.mem.eql(u8, strings[0], "emoji")) continue;
+            if (strings[1].len == 0 or strings[2].len == 0) continue;
 
-    fn findBracket(self: *EmojiTagIterator, bracket: u8) ?usize {
-        var in_string = false;
-        var escape = false;
-
-        while (self.pos < self.json.len) {
-            const c = self.json[self.pos];
-
-            if (escape) {
-                escape = false;
-                self.pos += 1;
-                continue;
-            }
-
-            if (c == '\\' and in_string) {
-                escape = true;
-                self.pos += 1;
-                continue;
-            }
-
-            if (c == '"') {
-                in_string = !in_string;
-                self.pos += 1;
-                continue;
-            }
-
-            if (!in_string and c == bracket) {
-                const found = self.pos;
-                self.pos += 1;
-                return found;
-            }
-
-            self.pos += 1;
-        }
-        return null;
-    }
-
-    fn parseEmojiTag(self: *const EmojiTagIterator, content: []const u8) ?Entry {
-        _ = self;
-        var strings: [3][]const u8 = undefined;
-        var str_count: usize = 0;
-
-        var i: usize = 0;
-        while (i < content.len and str_count < 3) {
-            const quote_start = std.mem.indexOfPos(u8, content, i, "\"") orelse break;
-            const str_start = quote_start + 1;
-            const quote_end = findStringEnd(content, str_start) orelse break;
-            strings[str_count] = content[str_start..quote_end];
-            str_count += 1;
-            i = quote_end + 1;
-        }
-
-        if (str_count < 3) return null;
-        if (!std.mem.eql(u8, strings[0], "emoji")) return null;
-
-        const shortcode = strings[1];
-        const url = strings[2];
-        if (shortcode.len == 0 or url.len == 0) return null;
-
-        return .{ .shortcode = shortcode, .url = url };
-    }
-
-    fn findStringEnd(content: []const u8, start: usize) ?usize {
-        var i = start;
-        while (i < content.len) {
-            if (content[i] == '\\' and i + 1 < content.len) {
-                i += 2;
-                continue;
-            }
-            if (content[i] == '"') return i;
-            i += 1;
+            return .{ .shortcode = strings[1], .url = strings[2] };
         }
         return null;
     }

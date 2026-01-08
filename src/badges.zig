@@ -252,78 +252,14 @@ const TagEntry = struct {
     extra: ?[]const u8,
 };
 
-/// Find the end of a JSON string, handling escapes
-fn findStringEnd(content: []const u8, start: usize) ?usize {
-    var idx = start;
-    while (idx < content.len) {
-        if (content[idx] == '\\' and idx + 1 < content.len) {
-            idx += 2;
-            continue;
-        }
-        if (content[idx] == '"') return idx;
-        idx += 1;
-    }
-    return null;
-}
-
-/// Parse a single tag array into name/value/extra components
 fn parseTagContent(content: []const u8) ?TagEntry {
-    var strings: [3][]const u8 = undefined;
-    var str_count: usize = 0;
-
-    var i: usize = 0;
-    while (i < content.len and str_count < 3) {
-        const quote_start = std.mem.indexOfPos(u8, content, i, "\"") orelse break;
-        const str_start = quote_start + 1;
-        const quote_end = findStringEnd(content, str_start) orelse break;
-        strings[str_count] = content[str_start..quote_end];
-        str_count += 1;
-        i = quote_end + 1;
-    }
-
-    if (str_count < 2) return null;
-
+    const strings = utils.parseTagStrings(content, 3) orelse return null;
+    if (strings[1].len == 0) return null;
     return .{
         .name = strings[0],
         .value = strings[1],
-        .extra = if (str_count >= 3) strings[2] else null,
+        .extra = if (strings[2].len > 0) strings[2] else null,
     };
-}
-
-/// Find a bracket character in JSON, respecting string boundaries
-fn findBracketInJson(json: []const u8, start: usize, bracket: u8) ?usize {
-    var pos = start;
-    var in_string = false;
-    var escape = false;
-
-    while (pos < json.len) {
-        const c = json[pos];
-
-        if (escape) {
-            escape = false;
-            pos += 1;
-            continue;
-        }
-
-        if (c == '\\' and in_string) {
-            escape = true;
-            pos += 1;
-            continue;
-        }
-
-        if (c == '"') {
-            in_string = !in_string;
-            pos += 1;
-            continue;
-        }
-
-        if (!in_string and c == bracket) {
-            return pos;
-        }
-
-        pos += 1;
-    }
-    return null;
 }
 
 const BadgeTagIterator = struct {
@@ -336,9 +272,8 @@ const BadgeTagIterator = struct {
 
     fn next(self: *BadgeTagIterator) ?TagEntry {
         while (self.pos < self.json.len) {
-            const tag_start = findBracketInJson(self.json, self.pos, '[') orelse return null;
-            self.pos = tag_start + 1;
-            const tag_end = findBracketInJson(self.json, self.pos, ']') orelse return null;
+            const tag_start = utils.findBracketInJson(self.json, self.pos, '[') orelse return null;
+            const tag_end = utils.findBracketInJson(self.json, tag_start + 1, ']') orelse return null;
             self.pos = tag_end + 1;
 
             const tag_content = self.json[tag_start + 1 .. tag_end];
@@ -368,9 +303,8 @@ const ProfileBadgeTagIterator = struct {
         var pending_a: ?[]const u8 = null;
 
         while (self.pos < self.json.len) {
-            const tag_start = findBracketInJson(self.json, self.pos, '[') orelse return null;
-            self.pos = tag_start + 1;
-            const tag_end = findBracketInJson(self.json, self.pos, ']') orelse return null;
+            const tag_start = utils.findBracketInJson(self.json, self.pos, '[') orelse return null;
+            const tag_end = utils.findBracketInJson(self.json, tag_start + 1, ']') orelse return null;
             self.pos = tag_end + 1;
 
             const tag_content = self.json[tag_start + 1 .. tag_end];
