@@ -934,37 +934,8 @@ fn extractBoolField(json: []const u8, key: []const u8) ?bool {
     return null;
 }
 
-fn percentDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
-    var result: std.ArrayListUnmanaged(u8) = .{};
-    errdefer result.deinit(allocator);
-
-    var i: usize = 0;
-    while (i < input.len) {
-        if (input[i] == '%' and i + 2 < input.len) {
-            const byte = std.fmt.parseInt(u8, input[i + 1 .. i + 3], 16) catch {
-                try result.append(allocator, input[i]);
-                i += 1;
-                continue;
-            };
-            try result.append(allocator, byte);
-            i += 3;
-        } else {
-            try result.append(allocator, input[i]);
-            i += 1;
-        }
-    }
-    return result.toOwnedSlice(allocator);
-}
-
-fn percentEncode(writer: anytype, input: []const u8) !void {
-    for (input) |c| {
-        if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~') {
-            try writer.writeByte(c);
-        } else {
-            try writer.print("%{X:0>2}", .{c});
-        }
-    }
-}
+const percentDecode = utils.percentDecode;
+const percentEncode = utils.percentEncode;
 
 pub fn encryptRequest(
     request: *const Request,

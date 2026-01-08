@@ -356,87 +356,20 @@ const ReactionTagIterator = struct {
 
     fn next(self: *ReactionTagIterator) ?Tag {
         while (self.pos < self.json.len) {
-            const tag_start = self.findBracket('[') orelse return null;
-            self.pos = tag_start + 1;
-            const tag_end = self.findBracket(']') orelse return null;
+            const tag_start = utils.findBracketInJson(self.json, self.pos, '[') orelse return null;
+            const tag_end = utils.findBracketInJson(self.json, tag_start + 1, ']') orelse return null;
             self.pos = tag_end + 1;
 
             const tag_content = self.json[tag_start + 1 .. tag_end];
-            if (self.parseTag(tag_content)) |tag| {
-                return tag;
-            }
-        }
-        return null;
-    }
+            const strings = utils.parseTagStrings(tag_content, 4) orelse continue;
+            if (strings[1].len == 0) continue;
 
-    fn findBracket(self: *ReactionTagIterator, bracket: u8) ?usize {
-        var in_string = false;
-        var escape = false;
-
-        while (self.pos < self.json.len) {
-            const c = self.json[self.pos];
-
-            if (escape) {
-                escape = false;
-                self.pos += 1;
-                continue;
-            }
-
-            if (c == '\\' and in_string) {
-                escape = true;
-                self.pos += 1;
-                continue;
-            }
-
-            if (c == '"') {
-                in_string = !in_string;
-                self.pos += 1;
-                continue;
-            }
-
-            if (!in_string and c == bracket) {
-                return self.pos;
-            }
-
-            self.pos += 1;
-        }
-        return null;
-    }
-
-    fn parseTag(self: *const ReactionTagIterator, content: []const u8) ?Tag {
-        _ = self;
-        var strings: [4][]const u8 = undefined;
-        var count: usize = 0;
-
-        var i: usize = 0;
-        while (i < content.len and count < 4) {
-            const quote_start = std.mem.indexOfPos(u8, content, i, "\"") orelse break;
-            const str_start = quote_start + 1;
-            const quote_end = findStringEnd(content, str_start) orelse break;
-            strings[count] = content[str_start..quote_end];
-            count += 1;
-            i = quote_end + 1;
-        }
-
-        if (count < 2) return null;
-
-        return .{
-            .name = strings[0],
-            .value = strings[1],
-            .third = if (count >= 3) strings[2] else null,
-            .fourth = if (count >= 4) strings[3] else null,
-        };
-    }
-
-    fn findStringEnd(content: []const u8, start: usize) ?usize {
-        var i = start;
-        while (i < content.len) {
-            if (content[i] == '\\' and i + 1 < content.len) {
-                i += 2;
-                continue;
-            }
-            if (content[i] == '"') return i;
-            i += 1;
+            return .{
+                .name = strings[0],
+                .value = strings[1],
+                .third = if (strings[2].len > 0) strings[2] else null,
+                .fourth = if (strings[3].len > 0) strings[3] else null,
+            };
         }
         return null;
     }

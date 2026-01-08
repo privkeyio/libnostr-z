@@ -211,10 +211,9 @@ const TagIterator = struct {
 
     fn next(self: *TagIterator) ?TagEntry {
         while (self.pos < self.json.len) {
-            const bracket_start = self.findBracket('[') orelse return null;
-            self.pos = bracket_start + 1;
-            self.tag_start = self.pos;
-            const bracket_end = self.findMatchingBracket() orelse return null;
+            const bracket_start = utils.findBracketInJson(self.json, self.pos, '[') orelse return null;
+            self.tag_start = bracket_start + 1;
+            const bracket_end = utils.findBracketInJson(self.json, self.tag_start, ']') orelse return null;
             self.tag_end = bracket_end;
             self.pos = self.tag_start;
 
@@ -241,98 +240,12 @@ const TagIterator = struct {
         self.pos += 1;
 
         const str_start = self.pos;
-        const str_end = findStringEnd(self.json, str_start) orelse return null;
+        const str_end = utils.findStringEnd(self.json, str_start) orelse return null;
         self.pos = str_end + 1;
 
         return self.json[str_start..str_end];
     }
-
-    fn findBracket(self: *TagIterator, bracket: u8) ?usize {
-        var in_string = false;
-        var escape = false;
-
-        while (self.pos < self.json.len) {
-            const c = self.json[self.pos];
-
-            if (escape) {
-                escape = false;
-                self.pos += 1;
-                continue;
-            }
-
-            if (c == '\\' and in_string) {
-                escape = true;
-                self.pos += 1;
-                continue;
-            }
-
-            if (c == '"') {
-                in_string = !in_string;
-                self.pos += 1;
-                continue;
-            }
-
-            if (!in_string and c == bracket) {
-                return self.pos;
-            }
-
-            self.pos += 1;
-        }
-        return null;
-    }
-
-    fn findMatchingBracket(self: *TagIterator) ?usize {
-        var depth: i32 = 1;
-        var in_string = false;
-        var escape = false;
-
-        while (self.pos < self.json.len) {
-            const c = self.json[self.pos];
-
-            if (escape) {
-                escape = false;
-                self.pos += 1;
-                continue;
-            }
-
-            if (c == '\\' and in_string) {
-                escape = true;
-                self.pos += 1;
-                continue;
-            }
-
-            if (c == '"') {
-                in_string = !in_string;
-                self.pos += 1;
-                continue;
-            }
-
-            if (!in_string) {
-                if (c == '[') depth += 1;
-                if (c == ']') {
-                    depth -= 1;
-                    if (depth == 0) return self.pos;
-                }
-            }
-
-            self.pos += 1;
-        }
-        return null;
-    }
 };
-
-fn findStringEnd(content: []const u8, start: usize) ?usize {
-    var i = start;
-    while (i < content.len) {
-        if (content[i] == '\\' and i + 1 < content.len) {
-            i += 2;
-            continue;
-        }
-        if (content[i] == '"') return i;
-        i += 1;
-    }
-    return null;
-}
 
 test "ZapGoal.fromEvent parses kind:9041" {
     try event_mod.init();
