@@ -60,7 +60,9 @@ pub fn mnemonicToSeed(mnemonic: []const u8, passphrase: []const u8, seed_out: *[
 
 fn pbkdf2HmacSha512(password: []const u8, salt: []const u8, iterations: u32, out: *[64]u8) void {
     var u: [64]u8 = undefined;
+    defer std.crypto.secureZero(u8, &u);
     var t: [64]u8 = undefined;
+    defer std.crypto.secureZero(u8, &t);
 
     var hmac = HmacSha512.init(password);
     hmac.update(salt);
@@ -85,6 +87,7 @@ fn masterKeyFromSeed(seed: []const u8, secret_key: *[32]u8, chain_code: *[32]u8)
     var hmac = HmacSha512.init("Bitcoin seed");
     hmac.update(seed);
     var result: [64]u8 = undefined;
+    defer std.crypto.secureZero(u8, &result);
     hmac.final(&result);
     secret_key.* = result[0..32].*;
     chain_code.* = result[32..64].*;
@@ -115,6 +118,7 @@ fn deriveNormalChild(parent_key: *const [32]u8, parent_chain: *const [32]u8, ind
     try getCompressedPubkey(parent_key, &compressed_pubkey);
 
     var data: [37]u8 = undefined;
+    defer std.crypto.secureZero(u8, &data);
     @memcpy(data[0..33], &compressed_pubkey);
     std.mem.writeInt(u32, data[33..37], index, .big);
 
@@ -173,11 +177,14 @@ fn addNoMod(a: *const [32]u8, b: *const [32]u8, result: *[32]u8) u16 {
 }
 
 fn compare(a: *const [32]u8, b: *const [32]u8) i32 {
+    var gt: u8 = 0;
+    var lt: u8 = 0;
     for (0..32) |i| {
-        if (a[i] < b[i]) return -1;
-        if (a[i] > b[i]) return 1;
+        const mask = ~(gt | lt);
+        gt |= @as(u8, @intFromBool(a[i] > b[i])) & mask;
+        lt |= @as(u8, @intFromBool(a[i] < b[i])) & mask;
     }
-    return 0;
+    return @as(i32, gt) - @as(i32, lt);
 }
 
 fn subtract(a: *const [32]u8, b: *const [32]u8, result: *[32]u8) void {
@@ -197,10 +204,11 @@ fn subtract(a: *const [32]u8, b: *const [32]u8, result: *[32]u8) void {
 }
 
 fn isZero(key: *const [32]u8) bool {
+    var acc: u8 = 0;
     for (key) |b| {
-        if (b != 0) return false;
+        acc |= b;
     }
-    return true;
+    return acc == 0;
 }
 
 pub fn keypairFromMnemonic(mnemonic: []const u8, passphrase: []const u8, account: u32) !Keypair {

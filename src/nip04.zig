@@ -145,10 +145,11 @@ pub fn decrypt(
     aesCbcDecrypt(&shared_secret, &iv, ciphertext, plaintext);
 
     const pad_byte = plaintext[ct_len - 1];
-    if (pad_byte == 0 or pad_byte > BLOCK_SIZE) return Nip04Error.InvalidPayload;
+    const unpadded_len = ct_len -| pad_byte;
 
-    const unpadded_len = ct_len - pad_byte;
     var pad_valid: u8 = 0;
+    pad_valid |= @intFromBool(pad_byte == 0);
+    pad_valid |= @intFromBool(pad_byte > BLOCK_SIZE);
     for (plaintext[unpadded_len..ct_len]) |b| {
         pad_valid |= b ^ pad_byte;
     }

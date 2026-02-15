@@ -356,39 +356,23 @@ pub fn unwrap(
     ) catch return Error.DecryptionFailed;
     errdefer allocator.free(seal_json);
 
-    var seal_event = Event.parseWithAllocator(seal_json, allocator) catch {
-        allocator.free(seal_json);
-        return Error.InvalidEvent;
-    };
+    var seal_event = Event.parseWithAllocator(seal_json, allocator) catch return Error.InvalidEvent;
     defer seal_event.deinit();
 
-    if (seal_event.kind_val != Kind.seal) {
-        allocator.free(seal_json);
-        return Error.InvalidKind;
-    }
+    if (seal_event.kind_val != Kind.seal) return Error.InvalidKind;
 
-    seal_event.validate() catch {
-        allocator.free(seal_json);
-        return Error.InvalidEvent;
-    };
+    seal_event.validate() catch return Error.InvalidEvent;
 
-    const seal_content = utils.extractJsonString(seal_json, "content") orelse {
-        allocator.free(seal_json);
-        return Error.MissingField;
-    };
+    const seal_content = utils.extractJsonString(seal_json, "content") orelse return Error.MissingField;
 
-    var seal_pubkey: [32]u8 = undefined;
-    @memcpy(&seal_pubkey, &seal_event.pubkey_bytes);
+    const seal_pubkey = seal_event.pubkey_bytes;
 
     const rumor_json = crypto.nip44Decrypt(
         &recipient_keypair.secret_key,
         &seal_pubkey,
         seal_content,
         allocator,
-    ) catch {
-        allocator.free(seal_json);
-        return Error.DecryptionFailed;
-    };
+    ) catch return Error.DecryptionFailed;
 
     return UnwrappedGiftWrap{
         .seal_json = seal_json,

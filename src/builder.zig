@@ -11,6 +11,7 @@ pub const Keypair = struct {
     pub fn generate() Keypair {
         var secret_key: [32]u8 = undefined;
         std.crypto.random.bytes(&secret_key);
+        defer std.crypto.secureZero(u8, &secret_key);
 
         var public_key: [32]u8 = undefined;
         crypto.getPublicKey(&secret_key, &public_key) catch unreachable;
@@ -23,6 +24,7 @@ pub const Keypair = struct {
 
     pub fn deinit(self: *Keypair) void {
         std.crypto.secureZero(u8, &self.secret_key);
+        std.crypto.secureZero(u8, &self.public_key);
     }
 };
 

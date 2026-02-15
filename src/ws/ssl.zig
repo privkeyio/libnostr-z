@@ -31,9 +31,11 @@ pub const SslStream = struct {
         const ctx = c.SSL_CTX_new(method) orelse return error.SslContextFailed;
         errdefer c.SSL_CTX_free(ctx);
 
-        if (c.SSL_CTX_set_min_proto_version(ctx, c.TLS1_2_VERSION) != 1) {
+        if (c.SSL_CTX_set_min_proto_version(ctx, c.TLS1_3_VERSION) != 1) {
             return error.SslContextFailed;
         }
+
+        _ = c.SSL_CTX_set_options(ctx, c.SSL_OP_NO_TICKET);
 
         if (c.SSL_CTX_set_default_verify_paths(ctx) != 1) {
             return error.SslContextFailed;
