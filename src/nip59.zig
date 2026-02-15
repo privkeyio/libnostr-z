@@ -261,7 +261,7 @@ pub fn createSeal(
 
 pub const WrapResult = struct {
     json: []u8,
-    ephemeral_keypair: Keypair,
+    ephemeral_pubkey: [32]u8,
 };
 
 pub fn createGiftWrap(
@@ -270,7 +270,8 @@ pub fn createGiftWrap(
     out_buf: []u8,
     allocator: std.mem.Allocator,
 ) !WrapResult {
-    const ephemeral_keypair = Keypair.generate();
+    var ephemeral_keypair = Keypair.generate();
+    defer ephemeral_keypair.deinit();
 
     const encrypted_content = try crypto.nip44Encrypt(
         &ephemeral_keypair.secret_key,
@@ -301,7 +302,7 @@ pub fn createGiftWrap(
 
     return .{
         .json = json,
-        .ephemeral_keypair = ephemeral_keypair,
+        .ephemeral_pubkey = ephemeral_keypair.public_key,
     };
 }
 
@@ -336,46 +337,48 @@ pub fn unwrap(
     recipient_keypair: *const Keypair,
     allocator: std.mem.Allocator,
 ) !UnwrappedGiftWrap {
-    const wrap_kind = parseKind(gift_wrap_json) orelse return Error.InvalidEvent;
-    if (wrap_kind != Kind.gift_wrap) return Error.InvalidKind;
+    const Event = @import("event.zig").Event;
+
+    var wrap_event = Event.parseWithAllocator(gift_wrap_json, allocator) catch return Error.InvalidEvent;
+    defer wrap_event.deinit();
+
+    if (wrap_event.kind_val != Kind.gift_wrap) return Error.InvalidKind;
+
+    wrap_event.validate() catch return Error.InvalidEvent;
 
     const wrap_content = utils.extractJsonString(gift_wrap_json, "content") orelse return Error.MissingField;
-    const wrap_pubkey_hex = utils.extractJsonString(gift_wrap_json, "pubkey") orelse return Error.MissingField;
-
-    var wrap_pubkey: [32]u8 = undefined;
-    hex.decode(wrap_pubkey_hex, &wrap_pubkey) catch return Error.InvalidPayload;
 
     const seal_json = crypto.nip44Decrypt(
         &recipient_keypair.secret_key,
-        &wrap_pubkey,
+        &wrap_event.pubkey_bytes,
         wrap_content,
         allocator,
     ) catch return Error.DecryptionFailed;
     errdefer allocator.free(seal_json);
 
-    const seal_kind = parseKind(seal_json) orelse {
+    var seal_event = Event.parseWithAllocator(seal_json, allocator) catch {
         allocator.free(seal_json);
         return Error.InvalidEvent;
     };
-    if (seal_kind != Kind.seal) {
+    defer seal_event.deinit();
+
+    if (seal_event.kind_val != Kind.seal) {
         allocator.free(seal_json);
         return Error.InvalidKind;
     }
+
+    seal_event.validate() catch {
+        allocator.free(seal_json);
+        return Error.InvalidEvent;
+    };
 
     const seal_content = utils.extractJsonString(seal_json, "content") orelse {
         allocator.free(seal_json);
         return Error.MissingField;
     };
-    const seal_pubkey_hex = utils.extractJsonString(seal_json, "pubkey") orelse {
-        allocator.free(seal_json);
-        return Error.MissingField;
-    };
 
     var seal_pubkey: [32]u8 = undefined;
-    hex.decode(seal_pubkey_hex, &seal_pubkey) catch {
-        allocator.free(seal_json);
-        return Error.InvalidPayload;
-    };
+    @memcpy(&seal_pubkey, &seal_event.pubkey_bytes);
 
     const rumor_json = crypto.nip44Decrypt(
         &recipient_keypair.secret_key,

@@ -7,7 +7,9 @@ const nc = @cImport({
 const NC_SUCCESS: i64 = 0;
 
 var ctx: ?*nc.NCContext = null;
+var init_mutex: std.Thread.Mutex = .{};
 var initialized = false;
+var init_err = false;
 
 pub const CryptoError = error{
     InitFailed,
@@ -17,28 +19,43 @@ pub const CryptoError = error{
 };
 
 pub fn init() !void {
+    if (@atomicLoad(bool, &initialized, .acquire)) return;
+
+    init_mutex.lock();
+    defer init_mutex.unlock();
+
     if (initialized) return;
+    if (init_err) return error.InitFailed;
 
     ctx = nc.NCGetSharedContext();
-    if (ctx == null) return error.InitFailed;
-
-    var entropy: [32]u8 = undefined;
-    std.crypto.random.bytes(&entropy);
-
-    const result = nc.NCInitContext(ctx, &entropy);
-    if (result != NC_SUCCESS) {
+    if (ctx == null) {
+        init_err = true;
         return error.InitFailed;
     }
 
-    initialized = true;
+    var entropy: [32]u8 = undefined;
+    std.crypto.random.bytes(&entropy);
+    defer std.crypto.secureZero(u8, &entropy);
+
+    const result = nc.NCInitContext(ctx, &entropy);
+    if (result != NC_SUCCESS) {
+        init_err = true;
+        return error.InitFailed;
+    }
+
+    @atomicStore(bool, &initialized, true, .release);
 }
 
 pub fn cleanup() void {
+    init_mutex.lock();
+    defer init_mutex.unlock();
+
     if (ctx) |c| {
         _ = nc.NCDestroyContext(c);
         ctx = null;
     }
     initialized = false;
+    init_err = false;
 }
 
 pub fn verifySignature(pubkey: *const [32]u8, message: *const [32]u8, sig: *const [64]u8) !void {
@@ -59,6 +76,7 @@ pub fn sign(secret_key: *const [32]u8, message: *const [32]u8, sig_out: *[64]u8)
 
     var random: [32]u8 = undefined;
     std.crypto.random.bytes(&random);
+    defer std.crypto.secureZero(u8, &random);
 
     const result = nc.NCSignDigest(ctx, sk, &random, message, sig_out);
 

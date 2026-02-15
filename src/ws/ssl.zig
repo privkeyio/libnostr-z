@@ -31,6 +31,16 @@ pub const SslStream = struct {
         const ctx = c.SSL_CTX_new(method) orelse return error.SslContextFailed;
         errdefer c.SSL_CTX_free(ctx);
 
+        if (c.SSL_CTX_set_min_proto_version(ctx, c.TLS1_2_VERSION) != 1) {
+            return error.SslContextFailed;
+        }
+
+        if (c.SSL_CTX_set_default_verify_paths(ctx) != 1) {
+            return error.SslContextFailed;
+        }
+
+        c.SSL_CTX_set_verify(ctx, c.SSL_VERIFY_PEER, null);
+
         const alpn = "\x08http/1.1";
         if (c.SSL_CTX_set_alpn_protos(ctx, alpn, alpn.len) != 0) {
             return error.SslContextFailed;
@@ -46,6 +56,10 @@ pub const SslStream = struct {
         @memcpy(host_buf[0..host.len], host);
         host_buf[host.len] = 0;
         if (c.SSL_set_tlsext_host_name(ssl, &host_buf) != 1) {
+            return error.SslContextFailed;
+        }
+
+        if (c.SSL_set1_host(ssl, &host_buf) != 1) {
             return error.SslContextFailed;
         }
 

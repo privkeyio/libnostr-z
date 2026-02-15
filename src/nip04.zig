@@ -70,7 +70,7 @@ pub fn encrypt(
     if (nc.NCGetSharedSecret(ctx, sk, pk, &shared_secret) != NC_SUCCESS) {
         return Nip04Error.EncryptionFailed;
     }
-    defer @memset(&shared_secret, 0);
+    defer std.crypto.secureZero(u8, &shared_secret);
 
     const padded_len = ((plaintext.len / BLOCK_SIZE) + 1) * BLOCK_SIZE;
     const padded = try allocator.alloc(u8, padded_len);
@@ -118,7 +118,7 @@ pub fn decrypt(
     if (nc.NCGetSharedSecret(ctx, sk, pk, &shared_secret) != NC_SUCCESS) {
         return Nip04Error.DecryptionFailed;
     }
-    defer @memset(&shared_secret, 0);
+    defer std.crypto.secureZero(u8, &shared_secret);
 
     const iv_sep = std.mem.indexOf(u8, payload, "?iv=") orelse return Nip04Error.InvalidPayload;
     const ct_b64 = payload[0..iv_sep];
@@ -148,9 +148,11 @@ pub fn decrypt(
     if (pad_byte == 0 or pad_byte > BLOCK_SIZE) return Nip04Error.InvalidPayload;
 
     const unpadded_len = ct_len - pad_byte;
+    var pad_valid: u8 = 0;
     for (plaintext[unpadded_len..ct_len]) |b| {
-        if (b != pad_byte) return Nip04Error.InvalidPayload;
+        pad_valid |= b ^ pad_byte;
     }
+    if (pad_valid != 0) return Nip04Error.InvalidPayload;
 
     const output = try allocator.realloc(plaintext, unpadded_len);
     return output;

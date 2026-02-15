@@ -93,7 +93,7 @@ fn masterKeyFromSeed(seed: []const u8, secret_key: *[32]u8, chain_code: *[32]u8)
 fn deriveHardenedChild(parent_key: *const [32]u8, parent_chain: *const [32]u8, index: u32, child_key: *[32]u8, child_chain: *[32]u8) !void {
     const hardened_index = index | 0x80000000;
     var data: [37]u8 = undefined;
-    defer @memset(&data, 0);
+    defer std.crypto.secureZero(u8, &data);
     data[0] = 0;
     @memcpy(data[1..33], parent_key);
     std.mem.writeInt(u32, data[33..37], hardened_index, .big);
@@ -101,7 +101,7 @@ fn deriveHardenedChild(parent_key: *const [32]u8, parent_chain: *const [32]u8, i
     var hmac = HmacSha512.init(parent_chain);
     hmac.update(&data);
     var result: [64]u8 = undefined;
-    defer @memset(&result, 0);
+    defer std.crypto.secureZero(u8, &result);
     hmac.final(&result);
 
     const il = result[0..32];
@@ -121,7 +121,7 @@ fn deriveNormalChild(parent_key: *const [32]u8, parent_chain: *const [32]u8, ind
     var hmac = HmacSha512.init(parent_chain);
     hmac.update(&data);
     var result: [64]u8 = undefined;
-    defer @memset(&result, 0);
+    defer std.crypto.secureZero(u8, &result);
     hmac.final(&result);
 
     const il = result[0..32];
@@ -205,19 +205,19 @@ fn isZero(key: *const [32]u8) bool {
 
 pub fn keypairFromMnemonic(mnemonic: []const u8, passphrase: []const u8, account: u32) !Keypair {
     var seed: [64]u8 = undefined;
-    defer @memset(&seed, 0);
+    defer std.crypto.secureZero(u8, &seed);
     try mnemonicToSeed(mnemonic, passphrase, &seed);
 
     var key: [32]u8 = undefined;
     var chain: [32]u8 = undefined;
-    defer @memset(&key, 0);
-    defer @memset(&chain, 0);
+    defer std.crypto.secureZero(u8, &key);
+    defer std.crypto.secureZero(u8, &chain);
     masterKeyFromSeed(&seed, &key, &chain);
 
     var child_key: [32]u8 = undefined;
     var child_chain: [32]u8 = undefined;
-    defer @memset(&child_key, 0);
-    defer @memset(&child_chain, 0);
+    defer std.crypto.secureZero(u8, &child_key);
+    defer std.crypto.secureZero(u8, &child_chain);
 
     try deriveHardenedChild(&key, &chain, 44, &child_key, &child_chain);
     key = child_key;
