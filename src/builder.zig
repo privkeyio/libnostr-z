@@ -11,6 +11,7 @@ pub const Keypair = struct {
     pub fn generate() Keypair {
         var secret_key: [32]u8 = undefined;
         std.crypto.random.bytes(&secret_key);
+        defer std.crypto.secureZero(u8, &secret_key);
 
         var public_key: [32]u8 = undefined;
         crypto.getPublicKey(&secret_key, &public_key) catch unreachable;
@@ -19,6 +20,11 @@ pub const Keypair = struct {
             .secret_key = secret_key,
             .public_key = public_key,
         };
+    }
+
+    pub fn deinit(self: *Keypair) void {
+        std.crypto.secureZero(u8, &self.secret_key);
+        std.crypto.secureZero(u8, &self.public_key);
     }
 };
 
@@ -101,6 +107,10 @@ pub const EventBuilder = struct {
     }
 
     pub fn mine(self: *EventBuilder, keypair: *const Keypair, target_difficulty: u8) !u64 {
+        return self.mineWithLimit(keypair, target_difficulty, null);
+    }
+
+    pub fn mineWithLimit(self: *EventBuilder, keypair: *const Keypair, target_difficulty: u8, max_iterations: ?u64) !u64 {
         @memcpy(&self.pubkey_bytes, &keypair.public_key);
 
         if (self.created_at_val == 0) {
@@ -142,6 +152,10 @@ pub const EventBuilder = struct {
         const prefix = prefix_fbs.getWritten();
 
         while (true) : (nonce += 1) {
+            if (max_iterations) |limit| {
+                if (nonce >= limit) return error.MiningLimitReached;
+            }
+
             const nonce_str = std.fmt.bufPrint(&nonce_str_buf, "{d}", .{nonce}) catch unreachable;
 
             var hasher = std.crypto.hash.sha2.Sha256.init(.{});

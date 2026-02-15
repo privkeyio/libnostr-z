@@ -7,7 +7,9 @@ const nc = @cImport({
 const NC_SUCCESS: i64 = 0;
 
 var ctx: ?*nc.NCContext = null;
+var init_mutex: std.Thread.Mutex = .{};
 var initialized = false;
+var init_err = false;
 
 pub const CryptoError = error{
     InitFailed,
@@ -17,32 +19,47 @@ pub const CryptoError = error{
 };
 
 pub fn init() !void {
+    if (@atomicLoad(bool, &initialized, .acquire)) return;
+
+    init_mutex.lock();
+    defer init_mutex.unlock();
+
     if (initialized) return;
+    if (init_err) return error.InitFailed;
 
     ctx = nc.NCGetSharedContext();
-    if (ctx == null) return error.InitFailed;
-
-    var entropy: [32]u8 = undefined;
-    std.crypto.random.bytes(&entropy);
-
-    const result = nc.NCInitContext(ctx, &entropy);
-    if (result != NC_SUCCESS) {
+    if (ctx == null) {
+        init_err = true;
         return error.InitFailed;
     }
 
-    initialized = true;
+    var entropy: [32]u8 = undefined;
+    std.crypto.random.bytes(&entropy);
+    defer std.crypto.secureZero(u8, &entropy);
+
+    const result = nc.NCInitContext(ctx, &entropy);
+    if (result != NC_SUCCESS) {
+        init_err = true;
+        return error.InitFailed;
+    }
+
+    @atomicStore(bool, &initialized, true, .release);
 }
 
 pub fn cleanup() void {
+    init_mutex.lock();
+    defer init_mutex.unlock();
+
     if (ctx) |c| {
         _ = nc.NCDestroyContext(c);
         ctx = null;
     }
-    initialized = false;
+    @atomicStore(bool, &initialized, false, .release);
+    @atomicStore(bool, &init_err, false, .release);
 }
 
 pub fn verifySignature(pubkey: *const [32]u8, message: *const [32]u8, sig: *const [64]u8) !void {
-    if (!initialized) try init();
+    if (!@atomicLoad(bool, &initialized, .acquire)) try init();
 
     const pk = nc.NCByteCastToPublicKey(pubkey);
     const result = nc.NCVerifyDigest(ctx, pk, message, sig);
@@ -53,12 +70,13 @@ pub fn verifySignature(pubkey: *const [32]u8, message: *const [32]u8, sig: *cons
 }
 
 pub fn sign(secret_key: *const [32]u8, message: *const [32]u8, sig_out: *[64]u8) !void {
-    if (!initialized) try init();
+    if (!@atomicLoad(bool, &initialized, .acquire)) try init();
 
     const sk = nc.NCByteCastToSecretKey(secret_key);
 
     var random: [32]u8 = undefined;
     std.crypto.random.bytes(&random);
+    defer std.crypto.secureZero(u8, &random);
 
     const result = nc.NCSignDigest(ctx, sk, &random, message, sig_out);
 
@@ -68,7 +86,7 @@ pub fn sign(secret_key: *const [32]u8, message: *const [32]u8, sig_out: *[64]u8)
 }
 
 pub fn getPublicKey(secret_key: *const [32]u8, pubkey_out: *[32]u8) !void {
-    if (!initialized) try init();
+    if (!@atomicLoad(bool, &initialized, .acquire)) try init();
 
     const sk = nc.NCByteCastToSecretKey(secret_key);
     const pk = nc.NCByteCastToPublicKey(pubkey_out);
@@ -81,7 +99,7 @@ pub fn getPublicKey(secret_key: *const [32]u8, pubkey_out: *[32]u8) !void {
 }
 
 pub fn validateSecretKey(secret_key: *const [32]u8) !void {
-    if (!initialized) try init();
+    if (!@atomicLoad(bool, &initialized, .acquire)) try init();
 
     const sk = nc.NCByteCastToSecretKey(secret_key);
     const result = nc.NCValidateSecretKey(ctx, sk);
@@ -145,7 +163,7 @@ pub fn nip44Encrypt(
     plaintext: []const u8,
     allocator: std.mem.Allocator,
 ) ![]u8 {
-    if (!initialized) try init();
+    if (!@atomicLoad(bool, &initialized, .acquire)) try init();
 
     if (plaintext.len < MIN_PLAINTEXT_SIZE) return Nip44Error.MessageTooSmall;
     if (plaintext.len > MAX_PLAINTEXT_SIZE) return Nip44Error.MessageTooLarge;
@@ -164,6 +182,7 @@ pub fn nip44Encrypt(
     std.crypto.random.bytes(&nonce);
 
     var hmac_key: [32]u8 = undefined;
+    defer std.crypto.secureZero(u8, &hmac_key);
 
     var args: nc.NCEncryptionArgs = .{
         .ivData = &nonce,
@@ -208,7 +227,7 @@ pub fn nip44Decrypt(
     payload: []const u8,
     allocator: std.mem.Allocator,
 ) ![]u8 {
-    if (!initialized) try init();
+    if (!@atomicLoad(bool, &initialized, .acquire)) try init();
 
     if (payload.len == 0) return Nip44Error.InvalidPayload;
     if (payload[0] == '#') return Nip44Error.UnsupportedVersion;
@@ -264,7 +283,7 @@ pub fn nip44Decrypt(
 }
 
 pub fn getConversationKey(secret_key: *const [32]u8, pubkey: *const [32]u8, out: *[32]u8) !void {
-    if (!initialized) try init();
+    if (!@atomicLoad(bool, &initialized, .acquire)) try init();
 
     const sk = nc.NCByteCastToSecretKey(secret_key);
     const pk = nc.NCByteCastToPublicKey(pubkey);
