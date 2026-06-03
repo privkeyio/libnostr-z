@@ -50,6 +50,15 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+
+    // Recent glibc/binutils emit `.sframe` sections into the C runtime objects
+    // (crt1.o, libc_nonshared.a) that Zig's self-hosted ELF linker cannot yet
+    // relocate (R_X86_64_PC64), breaking `zig build test` on bleeding-edge
+    // Linux distros. Routing through LLVM + LLD handles SFrame. See issue #114.
+    if (b.option(bool, "lld", "Link with LLVM/LLD instead of Zig's self-hosted linker") orelse false) {
+        tests.use_llvm = true;
+        tests.use_lld = true;
+    }
     tests.linkLibrary(noscrypt.artifact("noscrypt"));
     tests.linkLibrary(sz_lib);
     tests.root_module.addIncludePath(noscrypt.path("include"));
