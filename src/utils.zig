@@ -398,7 +398,7 @@ pub fn searchMatches(query: []const u8, content: []const u8) bool {
 }
 
 pub fn percentDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
-    var result: std.ArrayListUnmanaged(u8) = .{};
+    var result: std.ArrayListUnmanaged(u8) = .empty;
     errdefer result.deinit(allocator);
 
     var i: usize = 0;

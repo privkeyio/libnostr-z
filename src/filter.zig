@@ -159,8 +159,8 @@ pub const Filter = struct {
     }
 
     pub fn serialize(self: *const Filter, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeByte('{');
         var first = true;
@@ -255,7 +255,7 @@ pub const Filter = struct {
 
         try writer.writeByte('}');
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn deinit(self: *Filter) void {

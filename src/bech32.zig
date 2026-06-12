@@ -307,7 +307,7 @@ pub fn decodeNostr(allocator: std.mem.Allocator, input: []const u8) !Decoded {
 
 fn decodeTlvProfile(allocator: std.mem.Allocator, data: []const u8) !Decoded {
     var pubkey: ?[32]u8 = null;
-    var relays: std.ArrayListUnmanaged([]const u8) = .{};
+    var relays: std.ArrayListUnmanaged([]const u8) = .empty;
     errdefer {
         for (relays.items) |r| allocator.free(r);
         relays.deinit(allocator);
@@ -345,7 +345,7 @@ fn decodeTlvEvent(allocator: std.mem.Allocator, data: []const u8) !Decoded {
     var id: ?[32]u8 = null;
     var author: ?[32]u8 = null;
     var kind: ?u32 = null;
-    var relays: std.ArrayListUnmanaged([]const u8) = .{};
+    var relays: std.ArrayListUnmanaged([]const u8) = .empty;
     errdefer {
         for (relays.items) |r| allocator.free(r);
         relays.deinit(allocator);
@@ -389,7 +389,7 @@ fn decodeTlvAddr(allocator: std.mem.Allocator, data: []const u8) !Decoded {
     var identifier: ?[]const u8 = null;
     var pubkey: ?[32]u8 = null;
     var kind: ?u32 = null;
-    var relays: std.ArrayListUnmanaged([]const u8) = .{};
+    var relays: std.ArrayListUnmanaged([]const u8) = .empty;
     errdefer {
         if (identifier) |id| allocator.free(id);
         for (relays.items) |r| allocator.free(r);
@@ -472,7 +472,7 @@ fn decodeTlvOffer(allocator: std.mem.Allocator, data: []const u8) !Decoded {
                 offer_id = new_offer_id;
             },
             3 => if (l == 1) {
-                pricing_type = std.meta.intToEnum(Decoded.PricingType, v[0]) catch null;
+                pricing_type = std.enums.fromInt(Decoded.PricingType, v[0]) orelse null;
             },
             4 => if (l == 8) {
                 price = std.mem.readInt(u64, v[0..8], .big);

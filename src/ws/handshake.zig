@@ -18,7 +18,7 @@ pub fn secKey() [24]u8 {
     }
     var buf: [16]u8 = undefined;
     var ret: [24]u8 = undefined;
-    std.crypto.random.bytes(&buf);
+    @import("../io.zig").randomBytes(&buf);
     const encoded = base64Encoder.encode(&ret, &buf);
     assert(encoded.len == ret.len);
     return ret;

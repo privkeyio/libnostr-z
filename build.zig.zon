@@ -1,15 +1,15 @@
 .{
     .name = .nostr,
-    .version = "0.2.0",
+    .version = "0.3.0",
     .fingerprint = 0x208aa38f708e8e25,
     .dependencies = .{
         .noscrypt = .{
-            .url = "https://github.com/privkeyio/noscrypt/archive/6f9ce44.tar.gz",
-            .hash = "noscrypt-0.1.9-q33-Y_9w5wDS6fAVp_8IQAg8aiZkYMe07TT4i1sBks7L",
+            .url = "https://github.com/privkeyio/noscrypt/archive/01f2ed5801198da139fd9856dcc475a80121acf5.tar.gz",
+            .hash = "noscrypt-0.1.14-q33-Y3suyADLggvQIxeDkW7bCwZA4VuR2zAnm9M2Sbva",
         },
         .stringzilla = .{
             .url = "https://github.com/ashvardanian/StringZilla/archive/refs/tags/v4.5.1.tar.gz",
-            .hash = "1220683347bf6825659abe1b5d8de11a735259258d865b8cb02b393e7f5c18219e50",
+            .hash = "N-V-__8AAAZ8QgBoM0e_aCVlmr4bXY3hGnNSWSWNhluMsCs5",
         },
     },
     .paths = .{

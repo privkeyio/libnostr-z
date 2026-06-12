@@ -123,7 +123,7 @@ pub const ClientMsg = struct {
         const arr = parsed.value.array.items;
         if (arr.len < 3) return &[_]Filter{};
 
-        var filters: std.ArrayListUnmanaged(Filter) = .{};
+        var filters: std.ArrayListUnmanaged(Filter) = .empty;
         errdefer filters.deinit(allocator);
 
         for (arr[2..]) |filter_val| {
@@ -135,7 +135,7 @@ pub const ClientMsg = struct {
 
             if (filter_obj.get("ids")) |ids_val| {
                 if (ids_val == .array) {
-                    var ids_list: std.ArrayListUnmanaged([32]u8) = .{};
+                    var ids_list: std.ArrayListUnmanaged([32]u8) = .empty;
                     for (ids_val.array.items) |id_val| {
                         if (id_val == .string and id_val.string.len == 64) {
                             var id_bytes: [32]u8 = undefined;
@@ -154,7 +154,7 @@ pub const ClientMsg = struct {
 
             if (filter_obj.get("authors")) |authors_val| {
                 if (authors_val == .array) {
-                    var authors_list: std.ArrayListUnmanaged([32]u8) = .{};
+                    var authors_list: std.ArrayListUnmanaged([32]u8) = .empty;
                     for (authors_val.array.items) |author_val| {
                         if (author_val == .string and author_val.string.len == 64) {
                             var author_bytes: [32]u8 = undefined;
@@ -173,7 +173,7 @@ pub const ClientMsg = struct {
 
             if (filter_obj.get("kinds")) |kinds_val| {
                 if (kinds_val == .array) {
-                    var kinds_list: std.ArrayListUnmanaged(i32) = .{};
+                    var kinds_list: std.ArrayListUnmanaged(i32) = .empty;
                     for (kinds_val.array.items) |k| {
                         if (k == .integer) {
                             try kinds_list.append(allocator, @intCast(k.integer));
@@ -210,7 +210,7 @@ pub const ClientMsg = struct {
                 }
             }
 
-            var tag_entries: std.ArrayListUnmanaged(FilterTagEntry) = .{};
+            var tag_entries: std.ArrayListUnmanaged(FilterTagEntry) = .empty;
             errdefer {
                 for (tag_entries.items) |entry| {
                     for (entry.values) |val| {
@@ -232,7 +232,7 @@ pub const ClientMsg = struct {
                     if ((letter >= 'a' and letter <= 'z') or (letter >= 'A' and letter <= 'Z')) {
                         const tag_val = kv.value_ptr.*;
                         if (tag_val == .array) {
-                            var values_list: std.ArrayListUnmanaged(TagValue) = .{};
+                            var values_list: std.ArrayListUnmanaged(TagValue) = .empty;
                             errdefer values_list.deinit(allocator);
 
                             for (tag_val.array.items) |item| {
@@ -296,7 +296,7 @@ pub const ClientMsg = struct {
 
         if (filter_obj.get("ids")) |ids_val| {
             if (ids_val == .array) {
-                var ids_list: std.ArrayListUnmanaged([32]u8) = .{};
+                var ids_list: std.ArrayListUnmanaged([32]u8) = .empty;
                 for (ids_val.array.items) |id_val| {
                     if (id_val == .string and id_val.string.len == 64) {
                         var id_bytes: [32]u8 = undefined;
@@ -315,7 +315,7 @@ pub const ClientMsg = struct {
 
         if (filter_obj.get("authors")) |authors_val| {
             if (authors_val == .array) {
-                var authors_list: std.ArrayListUnmanaged([32]u8) = .{};
+                var authors_list: std.ArrayListUnmanaged([32]u8) = .empty;
                 for (authors_val.array.items) |author_val| {
                     if (author_val == .string and author_val.string.len == 64) {
                         var author_bytes: [32]u8 = undefined;
@@ -334,7 +334,7 @@ pub const ClientMsg = struct {
 
         if (filter_obj.get("kinds")) |kinds_val| {
             if (kinds_val == .array) {
-                var kinds_list: std.ArrayListUnmanaged(i32) = .{};
+                var kinds_list: std.ArrayListUnmanaged(i32) = .empty;
                 for (kinds_val.array.items) |kind_val| {
                     if (kind_val == .integer) {
                         try kinds_list.append(allocator, @intCast(kind_val.integer));
@@ -389,20 +389,20 @@ pub const ClientMsg = struct {
     }
 
     pub fn eventMsg(ev: *const Event, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"EVENT\",");
-        const event_json = try ev.serialize(buf[fbs.pos..]);
-        fbs.pos += event_json.len;
+        const event_json = try ev.serialize(buf[fbs.end..]);
+        fbs.end += event_json.len;
         try writer.writeAll("]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn reqMsg(sub_id: []const u8, filters: []const Filter, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"REQ\",\"");
         try writer.writeAll(sub_id);
@@ -410,24 +410,24 @@ pub const ClientMsg = struct {
 
         for (filters) |filter| {
             try writer.writeByte(',');
-            const filter_json = try filter.serialize(buf[fbs.pos..]);
-            fbs.pos += filter_json.len;
+            const filter_json = try filter.serialize(buf[fbs.end..]);
+            fbs.end += filter_json.len;
         }
 
         try writer.writeAll("]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn closeMsg(sub_id: []const u8, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"CLOSE\",\"");
         try writer.writeAll(sub_id);
         try writer.writeAll("\"]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -509,8 +509,8 @@ pub const RelayMsg = struct {
     }
 
     pub fn eventRaw(sub_id: []const u8, raw_json: []const u8, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"EVENT\",\"");
         try writer.writeAll(sub_id);
@@ -518,12 +518,12 @@ pub const RelayMsg = struct {
         try writer.writeAll(raw_json);
         try writer.writeAll("]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn ok(event_id: *const [32]u8, success: bool, message: []const u8, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"OK\",\"");
 
@@ -546,23 +546,23 @@ pub const RelayMsg = struct {
 
         try writer.writeAll("\"]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn eose(sub_id: []const u8, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"EOSE\",\"");
         try writer.writeAll(sub_id);
         try writer.writeAll("\"]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn closed(sub_id: []const u8, message: []const u8, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"CLOSED\",\"");
         try writer.writeAll(sub_id);
@@ -579,12 +579,12 @@ pub const RelayMsg = struct {
 
         try writer.writeAll("\"]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn notice(message: []const u8, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"NOTICE\",\"");
 
@@ -599,12 +599,12 @@ pub const RelayMsg = struct {
 
         try writer.writeAll("\"]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn auth(challenge: *const [32]u8, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"AUTH\",\"");
 
@@ -614,12 +614,12 @@ pub const RelayMsg = struct {
 
         try writer.writeAll("\"]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn count(sub_id: []const u8, count_val: u64, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"COUNT\",\"");
         try writer.writeAll(sub_id);
@@ -627,30 +627,30 @@ pub const RelayMsg = struct {
         try writer.print("{d}", .{count_val});
         try writer.writeAll("}]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn negMsg(sub_id: []const u8, payload: []const u8, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"NEG-MSG\",\"");
         try writer.writeAll(sub_id);
         try writer.writeAll("\",\"");
 
         const hex_len = payload.len * 2;
-        if (fbs.pos + hex_len + 2 > buf.len) return error.NoSpaceLeft;
-        hex.encode(payload, buf[fbs.pos..][0..hex_len]);
-        fbs.pos += hex_len;
+        if (fbs.end + hex_len + 2 > buf.len) return error.NoSpaceLeft;
+        hex.encode(payload, buf[fbs.end..][0..hex_len]);
+        fbs.end += hex_len;
 
         try writer.writeAll("\"]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn negErr(sub_id: []const u8, reason: []const u8, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("[\"NEG-ERR\",\"");
         try writer.writeAll(sub_id);
@@ -667,7 +667,7 @@ pub const RelayMsg = struct {
 
         try writer.writeAll("\"]");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 

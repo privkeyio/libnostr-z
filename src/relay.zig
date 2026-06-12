@@ -82,7 +82,7 @@ pub const Relay = struct {
     last_message_time: i64,
     last_ping_time: i64,
     awaiting_pong: bool,
-    mutex: std.Thread.Mutex,
+    mutex: std.Io.Mutex,
 
     const Self = @This();
 
@@ -99,13 +99,13 @@ pub const Relay = struct {
             .last_message_time = 0,
             .last_ping_time = 0,
             .awaiting_pong = false,
-            .mutex = .{},
+            .mutex = .init,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         self.closeInternal();
         var iter = self.subscriptions.iterator();
@@ -115,8 +115,8 @@ pub const Relay = struct {
     }
 
     pub fn connect(self: *Self) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         if (self.state == .connected) return RelayError.AlreadyConnected;
 
@@ -137,14 +137,14 @@ pub const Relay = struct {
         self.client = client;
         self.state = .connected;
         self.reconnect_attempts = 0;
-        self.last_message_time = std.time.timestamp();
+        self.last_message_time = @import("io.zig").timestamp();
         self.last_ping_time = 0;
         self.awaiting_pong = false;
     }
 
     pub fn disconnect(self: *Self) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         self.closeInternal();
     }
 
@@ -158,16 +158,16 @@ pub const Relay = struct {
 
     pub fn reconnect(self: *Self) !void {
         while (true) {
-            self.mutex.lock();
+            self.mutex.lockUncancelable(@import("io.zig").io());
             const config = self.config;
             const current_attempts = self.reconnect_attempts;
 
             if (!config.auto_reconnect) {
-                self.mutex.unlock();
+                self.mutex.unlock(@import("io.zig").io());
                 return RelayError.ConnectionFailed;
             }
             if (config.reconnect_max_attempts > 0 and current_attempts >= config.reconnect_max_attempts) {
-                self.mutex.unlock();
+                self.mutex.unlock(@import("io.zig").io());
                 return RelayError.ConnectionFailed;
             }
 
@@ -177,17 +177,17 @@ pub const Relay = struct {
                 c.close();
                 self.client = null;
             }
-            self.mutex.unlock();
+            self.mutex.unlock(@import("io.zig").io());
 
             const delay = calculateBackoff(config.reconnect_base_delay_ms, config.reconnect_max_delay_ms, current_attempts);
-            std.time.sleep(delay * std.time.ns_per_ms);
+            std.Io.sleep(@import("io.zig").io(), .{ .nanoseconds = @intCast(delay * std.time.ns_per_ms) }, .awake) catch {};
 
-            self.mutex.lock();
+            self.mutex.lockUncancelable(@import("io.zig").io());
             if (self.state != .reconnecting) {
-                self.mutex.unlock();
+                self.mutex.unlock(@import("io.zig").io());
                 return;
             }
-            self.mutex.unlock();
+            self.mutex.unlock(@import("io.zig").io());
 
             self.connect() catch {
                 continue;
@@ -199,8 +199,8 @@ pub const Relay = struct {
     }
 
     fn resubscribeAll(self: *Self) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         var iter = self.subscriptions.iterator();
         while (iter.next()) |entry| {
@@ -214,8 +214,8 @@ pub const Relay = struct {
     }
 
     pub fn subscribe(self: *Self, sub_id: []const u8, filters: []const Filter) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         if (self.state != .connected) return RelayError.NotConnected;
         if (self.subscriptions.count() >= self.config.max_subscriptions) {
@@ -248,15 +248,15 @@ pub const Relay = struct {
             .id = id_copy,
             .filters = filters_copy,
             .eose_received = false,
-            .created_at = std.time.timestamp(),
+            .created_at = @import("io.zig").timestamp(),
             .event_count = 0,
             .allocator = self.allocator,
         });
     }
 
     pub fn unsubscribe(self: *Self, sub_id: []const u8) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         if (self.state != .connected) return RelayError.NotConnected;
 
@@ -274,8 +274,8 @@ pub const Relay = struct {
     }
 
     pub fn publish(self: *Self, event: *const Event) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         if (self.state != .connected) return RelayError.NotConnected;
 
@@ -290,27 +290,27 @@ pub const Relay = struct {
     }
 
     pub fn receive(self: *Self) !?RelayMessage {
-        self.mutex.lock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
         if (self.state != .connected) {
-            self.mutex.unlock();
+            self.mutex.unlock(@import("io.zig").io());
             return RelayError.NotConnected;
         }
         var client = self.client orelse {
-            self.mutex.unlock();
+            self.mutex.unlock(@import("io.zig").io());
             return RelayError.NotConnected;
         };
-        self.mutex.unlock();
+        self.mutex.unlock(@import("io.zig").io());
 
         const ws_msg = client.recvMessage() catch |err| {
             switch (err) {
                 error.EndOfStream, error.ConnectionResetByPeer => {
-                    self.mutex.lock();
+                    self.mutex.lockUncancelable(@import("io.zig").io());
                     if (self.client) |*c| {
                         c.close();
                         self.client = null;
                     }
                     self.state = .disconnected;
-                    self.mutex.unlock();
+                    self.mutex.unlock(@import("io.zig").io());
                     if (self.config.auto_reconnect) {
                         self.reconnect() catch {};
                     }
@@ -321,10 +321,10 @@ pub const Relay = struct {
         };
         defer ws_msg.deinit();
 
-        self.mutex.lock();
-        self.last_message_time = std.time.timestamp();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        self.last_message_time = @import("io.zig").timestamp();
         self.awaiting_pong = false;
-        self.mutex.unlock();
+        self.mutex.unlock(@import("io.zig").io());
 
         return self.parseRelayMessage(ws_msg.payload);
     }
@@ -381,33 +381,33 @@ pub const Relay = struct {
                 }
 
                 if (sub_id) |sid| {
-                    self.mutex.lock();
+                    self.mutex.lockUncancelable(@import("io.zig").io());
                     if (self.subscriptions.getPtr(sid)) |sub| {
                         sub.event_count += 1;
                     }
-                    self.mutex.unlock();
+                    self.mutex.unlock(@import("io.zig").io());
                 }
             }
 
             if (parsed.msg_type == .eose) {
                 if (sub_id) |sid| {
-                    self.mutex.lock();
+                    self.mutex.lockUncancelable(@import("io.zig").io());
                     if (self.subscriptions.getPtr(sid)) |sub| {
                         sub.eose_received = true;
                     }
-                    self.mutex.unlock();
+                    self.mutex.unlock(@import("io.zig").io());
                 }
             }
 
             if (parsed.msg_type == .closed and arr.len > 2 and arr[2] == .string) {
                 msg_text = try self.allocator.dupe(u8, arr[2].string);
                 if (sub_id) |sid| {
-                    self.mutex.lock();
+                    self.mutex.lockUncancelable(@import("io.zig").io());
                     if (self.subscriptions.fetchRemove(sid)) |kv| {
                         var sub = kv.value;
                         sub.deinit();
                     }
-                    self.mutex.unlock();
+                    self.mutex.unlock(@import("io.zig").io());
                 }
             }
 
@@ -435,8 +435,8 @@ pub const Relay = struct {
     }
 
     pub fn sendPing(self: *Self) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         if (self.state != .connected) return RelayError.NotConnected;
         if (self.client) |*c| {
@@ -446,33 +446,33 @@ pub const Relay = struct {
             defer self.allocator.free(buf);
             _ = frame.encode(buf, 0);
             c.writeAll(buf) catch return RelayError.SendFailed;
-            self.last_ping_time = std.time.timestamp();
+            self.last_ping_time = @import("io.zig").timestamp();
             self.awaiting_pong = true;
         }
     }
 
     pub fn checkTimeouts(self: *Self) !void {
-        self.mutex.lock();
-        const now = std.time.timestamp();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        const now = @import("io.zig").timestamp();
         const last_msg = self.last_message_time;
         const last_ping = self.last_ping_time;
         const awaiting = self.awaiting_pong;
         const config = self.config;
         const state = self.state;
-        self.mutex.unlock();
+        self.mutex.unlock(@import("io.zig").io());
 
         if (state != .connected) return;
 
         if (awaiting) {
             const pong_timeout_sec = @as(i64, @intCast(config.pong_timeout_ms)) / 1000;
             if (now - last_ping > pong_timeout_sec) {
-                self.mutex.lock();
+                self.mutex.lockUncancelable(@import("io.zig").io());
                 self.state = .disconnected;
                 if (self.client) |*c| {
                     c.close();
                     self.client = null;
                 }
-                self.mutex.unlock();
+                self.mutex.unlock(@import("io.zig").io());
                 if (config.auto_reconnect) {
                     try self.reconnect();
                 }
@@ -487,8 +487,8 @@ pub const Relay = struct {
     }
 
     pub fn getState(self: *Self) ConnectionState {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         return self.state;
     }
 
@@ -497,26 +497,26 @@ pub const Relay = struct {
     }
 
     pub fn getSubscription(self: *Self, sub_id: []const u8) ?Subscription {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         return self.subscriptions.get(sub_id);
     }
 
     pub fn getSubscriptionCount(self: *Self) usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         return self.subscriptions.count();
     }
 
     pub fn hasSubscription(self: *Self, sub_id: []const u8) bool {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         return self.subscriptions.contains(sub_id);
     }
 
     pub fn isEoseReceived(self: *Self, sub_id: []const u8) bool {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         if (self.subscriptions.get(sub_id)) |sub| {
             return sub.eose_received;
         }

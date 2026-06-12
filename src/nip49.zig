@@ -57,10 +57,10 @@ pub fn encrypt(
     if (out.len < NCRYPTSEC_LEN) return Error.BufferTooSmall;
 
     var salt: [SALT_LEN]u8 = undefined;
-    std.crypto.random.bytes(&salt);
+    @import("io.zig").randomBytes(&salt);
 
     var nonce: [NONCE_LEN]u8 = undefined;
-    std.crypto.random.bytes(&nonce);
+    @import("io.zig").randomBytes(&nonce);
 
     var symmetric_key: [KEY_LEN]u8 = undefined;
     defer @memset(&symmetric_key, 0);
@@ -145,7 +145,7 @@ pub fn decrypt(
     const ciphertext = payload[2 + SALT_LEN + NONCE_LEN + 1 .. 2 + SALT_LEN + NONCE_LEN + 1 + KEY_LEN];
     const tag = payload[2 + SALT_LEN + NONCE_LEN + 1 + KEY_LEN ..][0..TAG_LEN];
 
-    const key_security: KeySecurity = std.meta.intToEnum(KeySecurity, key_security_byte) catch {
+    const key_security: KeySecurity = std.enums.fromInt(KeySecurity, key_security_byte) orelse {
         return Error.InvalidKeySecurity;
     };
 
@@ -229,7 +229,7 @@ test "nip49 all key security values roundtrip" {
     const allocator = std.testing.allocator;
 
     var secret_key: [32]u8 = undefined;
-    std.crypto.random.bytes(&secret_key);
+    @import("io.zig").randomBytes(&secret_key);
 
     const password = "test";
     const log_n: u6 = 4;
@@ -250,7 +250,7 @@ test "nip49 minimum buffer size" {
     const allocator = std.testing.allocator;
 
     var secret_key: [32]u8 = undefined;
-    std.crypto.random.bytes(&secret_key);
+    @import("io.zig").randomBytes(&secret_key);
 
     // Buffer too small should fail
     var small_buf: [NCRYPTSEC_LEN - 1]u8 = undefined;

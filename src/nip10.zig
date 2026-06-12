@@ -44,9 +44,9 @@ pub const Nip10 = struct {
     pub fn extractThreadInfo(json: []const u8, allocator: std.mem.Allocator) !ThreadInfo {
         var result = ThreadInfo{ .allocator = allocator };
         errdefer result.deinit();
-        var e_tags: std.ArrayListUnmanaged(ETagInfo) = .{};
+        var e_tags: std.ArrayListUnmanaged(ETagInfo) = .empty;
         defer e_tags.deinit(allocator);
-        var q_tags: std.ArrayListUnmanaged(QTagInfo) = .{};
+        var q_tags: std.ArrayListUnmanaged(QTagInfo) = .empty;
         defer q_tags.deinit(allocator);
 
         var iter = FullTagIterator.init(json, "tags") orelse return result;

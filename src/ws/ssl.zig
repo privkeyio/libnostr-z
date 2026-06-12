@@ -1,5 +1,5 @@
 const std = @import("std");
-const net = std.net;
+const net = std.Io.net;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
@@ -65,7 +65,7 @@ pub const SslStream = struct {
             return error.SslContextFailed;
         }
 
-        if (c.SSL_set_fd(ssl, tcp_stream.handle) != 1) {
+        if (c.SSL_set_fd(ssl, tcp_stream.socket.handle) != 1) {
             return error.SslSetFdFailed;
         }
 
@@ -112,6 +112,6 @@ pub const SslStream = struct {
         _ = c.SSL_shutdown(self.ssl);
         c.SSL_free(self.ssl);
         c.SSL_CTX_free(self.ctx);
-        self.tcp_stream.close();
+        self.tcp_stream.close(@import("../io.zig").io());
     }
 };

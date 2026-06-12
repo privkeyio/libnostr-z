@@ -15,7 +15,7 @@ pub const EmojiList = struct {
 
     pub fn init(allocator: std.mem.Allocator) EmojiList {
         return .{
-            .emojis = .{},
+            .emojis = .empty,
             .allocator = allocator,
         };
     }

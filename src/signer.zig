@@ -113,7 +113,7 @@ pub const LocalSigner = struct {
     /// Call `deinit()` when done with the signer.
     pub fn generate() Error!LocalSigner {
         var secret_key: [32]u8 = undefined;
-        std.crypto.random.bytes(&secret_key);
+        @import("io.zig").randomBytes(&secret_key);
         var public_key: [32]u8 = undefined;
         crypto.getPublicKey(&secret_key, &public_key) catch {
             // Zero the secret key before returning on error
@@ -181,7 +181,7 @@ test "LocalSigner generate and sign" {
     try std.testing.expect(!std.mem.eql(u8, &pubkey, &[_]u8{0} ** 32));
 
     var message: [32]u8 = undefined;
-    std.crypto.random.bytes(&message);
+    @import("io.zig").randomBytes(&message);
     var sig: [64]u8 = undefined;
     try local.sign(&message, &sig);
 
@@ -194,7 +194,7 @@ test "LocalSigner from secret key" {
     defer event_mod.cleanup();
 
     var secret_key: [32]u8 = undefined;
-    std.crypto.random.bytes(&secret_key);
+    @import("io.zig").randomBytes(&secret_key);
 
     var local = try LocalSigner.fromSecretKey(secret_key);
     defer local.deinit();
@@ -217,7 +217,7 @@ test "Signer interface with LocalSigner" {
     try std.testing.expectEqual(SignerType.local, s.signer_type);
 
     var message: [32]u8 = undefined;
-    std.crypto.random.bytes(&message);
+    @import("io.zig").randomBytes(&message);
     var sig: [64]u8 = undefined;
     try s.sign(&message, &sig);
 
@@ -260,7 +260,7 @@ test "CallbackSigner with custom implementation" {
     };
 
     var secret_key: [32]u8 = undefined;
-    std.crypto.random.bytes(&secret_key);
+    @import("io.zig").randomBytes(&secret_key);
     var public_key: [32]u8 = undefined;
     crypto.getPublicKey(&secret_key, &public_key) catch unreachable;
 
@@ -275,7 +275,7 @@ test "CallbackSigner with custom implementation" {
     try std.testing.expectEqual(SignerType.browser, s.signer_type);
 
     var message: [32]u8 = undefined;
-    std.crypto.random.bytes(&message);
+    @import("io.zig").randomBytes(&message);
     var sig: [64]u8 = undefined;
     try s.sign(&message, &sig);
 

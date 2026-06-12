@@ -335,10 +335,22 @@ pub fn client(
 
 const testing = std.testing;
 
+const SliceReader = struct {
+    data: []const u8,
+    pos: usize = 0,
+
+    fn read(self: *SliceReader, buf: []u8) !usize {
+        const n = @min(buf.len, self.data.len - self.pos);
+        @memcpy(buf[0..n], self.data[self.pos..][0..n]);
+        self.pos += n;
+        return n;
+    }
+};
+
 test "reader read close frame" {
     var input = [_]u8{ 0x88, 0x02, 0x03, 0xe8 };
-    var inner_stm = std.io.fixedBufferStream(&input);
-    var rdr = reader(testing.allocator, inner_stm.reader());
+    var inner_stm = SliceReader{ .data = &input };
+    var rdr = reader(testing.allocator, &inner_stm);
     var frame = try rdr.frame();
     defer frame.deinit();
 
@@ -352,8 +364,8 @@ test "reader read close frame" {
 
 test "reader read masked close frame with payload" {
     var input = [_]u8{ 0x88, 0x87, 0xa, 0xb, 0xc, 0xd, 0x09, 0xe2, 0x0d, 0x0f, 0x09, 0x0f, 0x09 };
-    var inner_stm = std.io.fixedBufferStream(&input);
-    var rdr = reader(testing.allocator, inner_stm.reader());
+    var inner_stm = SliceReader{ .data = &input };
+    var rdr = reader(testing.allocator, &inner_stm);
     var frame = try rdr.frame();
     defer frame.deinit();
 

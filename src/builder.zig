@@ -10,7 +10,7 @@ pub const Keypair = struct {
 
     pub fn generate() Keypair {
         var secret_key: [32]u8 = undefined;
-        std.crypto.random.bytes(&secret_key);
+        @import("io.zig").randomBytes(&secret_key);
         defer std.crypto.secureZero(u8, &secret_key);
 
         var public_key: [32]u8 = undefined;
@@ -63,12 +63,12 @@ pub const EventBuilder = struct {
         @memcpy(&self.pubkey_bytes, &keypair.public_key);
 
         if (self.created_at_val == 0) {
-            self.created_at_val = std.time.timestamp();
+            self.created_at_val = @import("io.zig").timestamp();
         }
 
         var commitment_buf: [8192]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&commitment_buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(&commitment_buf);
+        const writer = &fbs;
 
         try writer.writeAll("[0,\"");
 
@@ -98,7 +98,7 @@ pub const EventBuilder = struct {
         try utils.writeJsonEscaped(writer, self.content_slice);
         try writer.writeAll("\"]");
 
-        const commitment = fbs.getWritten();
+        const commitment = fbs.buffered();
         std.crypto.hash.sha2.Sha256.hash(commitment, &self.id_bytes, .{});
 
         crypto.sign(&keypair.secret_key, &self.id_bytes, &self.sig_bytes) catch {
@@ -114,7 +114,7 @@ pub const EventBuilder = struct {
         @memcpy(&self.pubkey_bytes, &keypair.public_key);
 
         if (self.created_at_val == 0) {
-            self.created_at_val = std.time.timestamp();
+            self.created_at_val = @import("io.zig").timestamp();
         }
 
         var nonce: u64 = 0;
@@ -123,8 +123,8 @@ pub const EventBuilder = struct {
         const target_str = std.fmt.bufPrint(&target_str_buf, "{d}", .{target_difficulty}) catch unreachable;
 
         var commitment_prefix_buf: [8192]u8 = undefined;
-        var prefix_fbs = std.io.fixedBufferStream(&commitment_prefix_buf);
-        const prefix_writer = prefix_fbs.writer();
+        var prefix_fbs = std.Io.Writer.fixed(&commitment_prefix_buf);
+        const prefix_writer = &prefix_fbs;
 
         try prefix_writer.writeAll("[0,\"");
         var mine_pk_hex: [64]u8 = undefined;
@@ -149,7 +149,7 @@ pub const EventBuilder = struct {
         }
 
         const has_existing_tags = self.tags_data.len > 0;
-        const prefix = prefix_fbs.getWritten();
+        const prefix = prefix_fbs.buffered();
 
         while (true) : (nonce += 1) {
             if (max_iterations) |limit| {
@@ -183,8 +183,8 @@ pub const EventBuilder = struct {
     }
 
     pub fn serialize(self: *const EventBuilder, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"id\":\"");
         var ser_id_hex: [64]u8 = undefined;
@@ -229,7 +229,7 @@ pub const EventBuilder = struct {
         try writer.writeAll(&ser_sig_hex);
         try writer.writeAll("\"}");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 

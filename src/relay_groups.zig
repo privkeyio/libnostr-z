@@ -142,7 +142,7 @@ pub const GroupAdmins = struct {
     pub fn init(allocator: std.mem.Allocator) GroupAdmins {
         return .{
             .group_id = "",
-            .admins = .{},
+            .admins = .empty,
             .allocator = allocator,
         };
     }
@@ -179,7 +179,7 @@ pub const GroupAdmins = struct {
             const pubkey = try allocator.dupe(u8, entry.pubkey);
             errdefer allocator.free(pubkey);
 
-            var roles_list: std.ArrayListUnmanaged([]const u8) = .{};
+            var roles_list: std.ArrayListUnmanaged([]const u8) = .empty;
             errdefer {
                 for (roles_list.items) |r| allocator.free(r);
                 roles_list.deinit(allocator);
@@ -218,7 +218,7 @@ pub const GroupMembers = struct {
     pub fn init(allocator: std.mem.Allocator) GroupMembers {
         return .{
             .group_id = "",
-            .members = .{},
+            .members = .empty,
             .allocator = allocator,
         };
     }
@@ -280,7 +280,7 @@ pub const GroupRoles = struct {
     pub fn init(allocator: std.mem.Allocator) GroupRoles {
         return .{
             .group_id = "",
-            .roles = .{},
+            .roles = .empty,
             .allocator = allocator,
         };
     }

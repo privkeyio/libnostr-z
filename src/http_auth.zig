@@ -86,7 +86,7 @@ pub const HttpAuth = struct {
         if (kind != Kind) return error.InvalidKind;
 
         const created_at = utils.extractIntField(json, "created_at", i64) orelse return error.EventExpired;
-        const now = std.time.timestamp();
+        const now = @import("io.zig").timestamp();
         const window = time_window orelse DefaultTimeWindow;
 
         if (created_at < now - window) return error.EventExpired;
@@ -127,7 +127,7 @@ pub const HttpAuth = struct {
         // Now validate NIP-98 specific fields
         if (event.kind() != Kind) return error.InvalidKind;
 
-        const now = std.time.timestamp();
+        const now = @import("io.zig").timestamp();
         const window = time_window orelse DefaultTimeWindow;
         const created_at = event.createdAt();
 
@@ -281,7 +281,7 @@ test "HttpAuth.validate kind check" {
 }
 
 test "HttpAuth.validate url mismatch" {
-    const now = std.time.timestamp();
+    const now = @import("io.zig").timestamp();
     var json_buf: [512]u8 = undefined;
     const json = std.fmt.bufPrint(&json_buf,
         \\{{"id":"abc","pubkey":"def","sig":"ghi","kind":27235,"created_at":{d},"content":"","tags":[["u","https://api.example.com/v1"],["method","GET"]]}}
@@ -291,7 +291,7 @@ test "HttpAuth.validate url mismatch" {
 }
 
 test "HttpAuth.validate method mismatch" {
-    const now = std.time.timestamp();
+    const now = @import("io.zig").timestamp();
     var json_buf: [512]u8 = undefined;
     const json = std.fmt.bufPrint(&json_buf,
         \\{{"id":"abc","pubkey":"def","sig":"ghi","kind":27235,"created_at":{d},"content":"","tags":[["u","https://api.example.com"],["method","GET"]]}}
@@ -301,7 +301,7 @@ test "HttpAuth.validate method mismatch" {
 }
 
 test "HttpAuth.validate success" {
-    const now = std.time.timestamp();
+    const now = @import("io.zig").timestamp();
     var json_buf: [512]u8 = undefined;
     const json = std.fmt.bufPrint(&json_buf,
         \\{{"id":"abc","pubkey":"def","sig":"ghi","kind":27235,"created_at":{d},"content":"","tags":[["u","https://api.example.com"],["method","GET"]]}}
@@ -311,7 +311,7 @@ test "HttpAuth.validate success" {
 }
 
 test "HttpAuth.validate with payload" {
-    const now = std.time.timestamp();
+    const now = @import("io.zig").timestamp();
     var json_buf: [512]u8 = undefined;
     const json = std.fmt.bufPrint(&json_buf,
         \\{{"id":"abc","pubkey":"def","sig":"ghi","kind":27235,"created_at":{d},"content":"","tags":[["u","https://api.example.com"],["method","POST"],["payload","abc123"]]}}
@@ -332,7 +332,7 @@ test "HttpAuth.validate expired event" {
 }
 
 test "HttpAuth.validate future event" {
-    const future_time = std.time.timestamp() + 3600;
+    const future_time = @import("io.zig").timestamp() + 3600;
     var json_buf: [512]u8 = undefined;
     const json = std.fmt.bufPrint(&json_buf,
         \\{{"id":"abc","pubkey":"def","sig":"ghi","kind":27235,"created_at":{d},"content":"","tags":[["u","https://api.example.com"],["method","GET"]]}}
@@ -373,7 +373,7 @@ test "HttpAuth.validateAndVerify rejects invalid signature" {
     defer event_mod.cleanup();
 
     // Manually crafted event with invalid signature
-    const now = std.time.timestamp();
+    const now = @import("io.zig").timestamp();
     var json_buf: [512]u8 = undefined;
     const json = std.fmt.bufPrint(&json_buf,
         \\{{"id":"0000000000000000000000000000000000000000000000000000000000000000","pubkey":"0000000000000000000000000000000000000000000000000000000000000000","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","kind":27235,"created_at":{d},"content":"","tags":[["u","https://api.example.com"],["method","GET"]]}}

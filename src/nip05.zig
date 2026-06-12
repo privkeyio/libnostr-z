@@ -25,18 +25,18 @@ pub const Identifier = struct {
     }
 
     pub fn formatUrl(self: *const Identifier, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
         try writer.writeAll("https://");
         try writer.writeAll(self.domain);
         try writer.writeAll("/.well-known/nostr.json?name=");
         try percentEncode(writer, self.local_part);
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn formatDisplay(self: *const Identifier, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
         if (self.isRoot()) {
             try writer.writeAll(self.domain);
         } else {
@@ -44,7 +44,7 @@ pub const Identifier = struct {
             try writer.writeByte('@');
             try writer.writeAll(self.domain);
         }
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 

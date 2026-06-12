@@ -42,7 +42,7 @@ pub const BadgeDefinition = struct {
             .description = null,
             .image_url = null,
             .image_dimensions = null,
-            .thumbnails = .{},
+            .thumbnails = .empty,
             .allocator = allocator,
         };
     }
@@ -113,7 +113,7 @@ pub const BadgeAward = struct {
     pub fn init(allocator: std.mem.Allocator) BadgeAward {
         return .{
             .badge_address = "",
-            .awarded_pubkeys = .{},
+            .awarded_pubkeys = .empty,
             .allocator = allocator,
         };
     }
@@ -177,7 +177,7 @@ pub const ProfileBadges = struct {
 
     pub fn init(allocator: std.mem.Allocator) ProfileBadges {
         return .{
-            .badges = .{},
+            .badges = .empty,
             .allocator = allocator,
         };
     }

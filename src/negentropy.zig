@@ -161,7 +161,7 @@ pub const VectorStorage = struct {
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) VectorStorage {
-        return .{ .items = .{}, .allocator = allocator };
+        return .{ .items = .empty, .allocator = allocator };
     }
 
     pub fn deinit(self: *VectorStorage) void {
@@ -256,8 +256,8 @@ pub const Negentropy = struct {
         self.last_timestamp_in = 0;
         self.last_timestamp_out = 0;
 
-        var have_ids: std.ArrayListUnmanaged([ID_SIZE]u8) = .{};
-        var need_ids: std.ArrayListUnmanaged([ID_SIZE]u8) = .{};
+        var have_ids: std.ArrayListUnmanaged([ID_SIZE]u8) = .empty;
+        var need_ids: std.ArrayListUnmanaged([ID_SIZE]u8) = .empty;
 
         if (out.len == 0) return Error.BufferTooSmall;
         var pos: usize = 0;

@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Thread = std.Thread;
-const Mutex = Thread.Mutex;
+const Mutex = std.Io.Mutex;
 
 const ws = @import("ws/ws.zig");
 const Client = ws.Client;
@@ -146,11 +146,11 @@ pub const Pool = struct {
     pub fn initWithOptions(allocator: Allocator, options: PoolOptions) Pool {
         return .{
             .allocator = allocator,
-            .relays = .{},
+            .relays = .empty,
             .seen_events = .{},
             .message_queue = MessageQueue.initWithCapacity(allocator, options.queue_size),
             .subscriptions = .{},
-            .mutex = .{},
+            .mutex = .init,
             .options = options,
             .next_relay_idx = std.atomic.Value(usize).init(0),
             .active_workers = std.atomic.Value(usize).init(0),
@@ -181,8 +181,8 @@ pub const Pool = struct {
     }
 
     pub fn addRelay(self: *Pool, url: []const u8) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         for (self.relays.items) |relay| {
             if (std.mem.eql(u8, relay.url, url)) {
@@ -205,8 +205,8 @@ pub const Pool = struct {
         var found = false;
 
         {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lockUncancelable(@import("io.zig").io());
+            defer self.mutex.unlock(@import("io.zig").io());
 
             for (self.relays.items) |*relay| {
                 if (std.mem.eql(u8, relay.url, url)) {
@@ -223,8 +223,8 @@ pub const Pool = struct {
 
         if (thread_to_join) |t| t.join();
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         for (self.relays.items, 0..) |*relay, i| {
             if (std.mem.eql(u8, relay.url, url)) {
@@ -239,8 +239,8 @@ pub const Pool = struct {
     }
 
     pub fn connectAll(self: *Pool) !usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         var connected: usize = 0;
         for (self.relays.items) |*relay| {
@@ -263,8 +263,8 @@ pub const Pool = struct {
         var thread_count: usize = 0;
 
         {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lockUncancelable(@import("io.zig").io());
+            defer self.mutex.unlock(@import("io.zig").io());
 
             for (self.relays.items) |*relay| {
                 relay.should_stop.store(true, .release);
@@ -282,8 +282,8 @@ pub const Pool = struct {
             if (maybe_thread) |t| t.join();
         }
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         for (self.relays.items) |*relay| {
             if (relay.client) |*c| c.close();
@@ -294,8 +294,8 @@ pub const Pool = struct {
     }
 
     pub fn getRelayStatus(self: *Pool, url: []const u8) ?RelayStatus {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         for (self.relays.items) |*relay| {
             if (std.mem.eql(u8, relay.url, url)) {
@@ -306,8 +306,8 @@ pub const Pool = struct {
     }
 
     pub fn connectedCount(self: *Pool) usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         var count: usize = 0;
         for (self.relays.items) |*relay| {
@@ -319,8 +319,8 @@ pub const Pool = struct {
     }
 
     pub fn relayCount(self: *Pool) usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         return self.relays.items.len;
     }
 
@@ -333,24 +333,24 @@ pub const Pool = struct {
         defer if (heap_buf) |buf| self.allocator.free(buf);
 
         if (required_len <= stack_buf.len) {
-            var fbs = std.io.fixedBufferStream(&stack_buf);
-            const writer = fbs.writer();
+            var fbs = std.Io.Writer.fixed(&stack_buf);
+            const writer = &fbs;
             writer.writeAll("[\"EVENT\",") catch return error.BufferTooSmall;
             writer.writeAll(event_json) catch return error.BufferTooSmall;
             writer.writeAll("]") catch return error.BufferTooSmall;
-            msg = fbs.getWritten();
+            msg = fbs.buffered();
         } else {
             heap_buf = try self.allocator.alloc(u8, required_len);
-            var fbs = std.io.fixedBufferStream(heap_buf.?);
-            const writer = fbs.writer();
+            var fbs = std.Io.Writer.fixed(heap_buf.?);
+            const writer = &fbs;
             try writer.writeAll("[\"EVENT\",");
             try writer.writeAll(event_json);
             try writer.writeAll("]");
-            msg = fbs.getWritten();
+            msg = fbs.buffered();
         }
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         var results = try self.allocator.alloc(PublishResult, self.relays.items.len);
         var result_idx: usize = 0;
@@ -399,24 +399,24 @@ pub const Pool = struct {
         defer if (heap_buf) |buf| self.allocator.free(buf);
 
         if (required_len <= stack_buf.len) {
-            var fbs = std.io.fixedBufferStream(&stack_buf);
-            const writer = fbs.writer();
+            var fbs = std.Io.Writer.fixed(&stack_buf);
+            const writer = &fbs;
             writer.writeAll("[\"EVENT\",") catch return error.BufferTooSmall;
             writer.writeAll(event_json) catch return error.BufferTooSmall;
             writer.writeAll("]") catch return error.BufferTooSmall;
-            msg = fbs.getWritten();
+            msg = fbs.buffered();
         } else {
             heap_buf = try self.allocator.alloc(u8, required_len);
-            var fbs = std.io.fixedBufferStream(heap_buf.?);
-            const writer = fbs.writer();
+            var fbs = std.Io.Writer.fixed(heap_buf.?);
+            const writer = &fbs;
             try writer.writeAll("[\"EVENT\",");
             try writer.writeAll(event_json);
             try writer.writeAll("]");
-            msg = fbs.getWritten();
+            msg = fbs.buffered();
         }
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         const relay_count = self.relays.items.len;
         if (relay_count == 0) return null;
@@ -447,8 +447,8 @@ pub const Pool = struct {
         var msg_buf: [65536]u8 = undefined;
         const msg = try ClientMsg.reqMsg(sub_id, filters, &msg_buf);
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         var owned_filters = try self.allocator.alloc(Filter, filters.len);
         errdefer self.allocator.free(owned_filters);
@@ -475,8 +475,8 @@ pub const Pool = struct {
         var msg_buf: [256]u8 = undefined;
         const msg = try ClientMsg.closeMsg(sub_id, &msg_buf);
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         if (self.subscriptions.fetchRemove(sub_id)) |entry| {
             self.allocator.free(entry.key);
@@ -495,8 +495,8 @@ pub const Pool = struct {
     }
 
     pub fn startReceiving(self: *Pool) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         for (self.relays.items) |*relay| {
             if (relay.getStatus() == .connected and relay.thread == null) {
@@ -597,14 +597,14 @@ pub const Pool = struct {
     }
 
     fn isDuplicate(self: *Pool, event_id: *const [32]u8) bool {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         return self.seen_events.contains(event_id.*);
     }
 
     fn tryMarkSeen(self: *Pool, event_id: *const [32]u8) !bool {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         if (self.seen_events.contains(event_id.*)) {
             return false;
@@ -627,13 +627,13 @@ pub const Pool = struct {
             }
         }
 
-        try self.seen_events.put(self.allocator, event_id.*, std.time.timestamp());
+        try self.seen_events.put(self.allocator, event_id.*, @import("io.zig").timestamp());
         return true;
     }
 
     fn markSeen(self: *Pool, event_id: *const [32]u8) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         if (self.seen_events.count() >= self.options.dedup_cache_size) {
             var oldest_key: ?[32]u8 = null;
@@ -652,24 +652,24 @@ pub const Pool = struct {
             }
         }
 
-        try self.seen_events.put(self.allocator, event_id.*, std.time.timestamp());
+        try self.seen_events.put(self.allocator, event_id.*, @import("io.zig").timestamp());
     }
 
     pub fn clearSeenEvents(self: *Pool) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         self.seen_events.clearRetainingCapacity();
     }
 
     pub fn seenCount(self: *Pool) usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         return self.seen_events.count();
     }
 
     pub fn getRelays(self: *Pool) ![]RelayInfo {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         var infos = try self.allocator.alloc(RelayInfo, self.relays.items.len);
         errdefer self.allocator.free(infos);
@@ -720,14 +720,14 @@ pub const Pool = struct {
         }
 
         const timeout_ns = timeout_ms * std.time.ns_per_ms;
-        const deadline = std.time.nanoTimestamp() + @as(i128, timeout_ns);
+        const deadline = @import("io.zig").nanoTimestamp() + @as(i128, timeout_ns);
         var eose_count: usize = 0;
 
-        while (std.time.nanoTimestamp() < deadline) {
+        while (@import("io.zig").nanoTimestamp() < deadline) {
             const current_connected = self.connectedCount();
             if (current_connected == 0 or eose_count >= current_connected) break;
 
-            const remaining: u64 = @intCast(@max(0, deadline - std.time.nanoTimestamp()));
+            const remaining: u64 = @intCast(@max(0, deadline - @import("io.zig").nanoTimestamp()));
             const msg = self.receiveWithTimeout(@min(remaining, 100 * std.time.ns_per_ms)) orelse continue;
             defer self.freeMessage(msg);
 
@@ -751,8 +751,8 @@ pub const Pool = struct {
         var thread_count: usize = 0;
 
         {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lockUncancelable(@import("io.zig").io());
+            defer self.mutex.unlock(@import("io.zig").io());
 
             for (self.relays.items) |*relay| {
                 relay.should_stop.store(true, .release);
@@ -770,8 +770,8 @@ pub const Pool = struct {
             if (maybe_thread) |t| t.join();
         }
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         for (self.relays.items) |*relay| {
             relay.should_stop.store(false, .release);
         }

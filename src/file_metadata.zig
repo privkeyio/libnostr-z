@@ -77,7 +77,7 @@ pub const FileMetadata = struct {
         var image: ?ImageRef = null;
         var summary: ?[]const u8 = null;
         var alt: ?[]const u8 = null;
-        var fallbacks = std.ArrayListUnmanaged([]const u8){};
+        var fallbacks = std.ArrayListUnmanaged([]const u8).empty;
         var service: ?[]const u8 = null;
 
         errdefer {
