@@ -30,13 +30,13 @@ pub const ZapGoal = struct {
         return .{
             .content = "",
             .amount = 0,
-            .relays = .{},
+            .relays = .empty,
             .closed_at = null,
             .image = null,
             .summary = null,
             .linked_url = null,
             .linked_address = null,
-            .beneficiaries = .{},
+            .beneficiaries = .empty,
             .allocator = allocator,
         };
     }
@@ -151,7 +151,7 @@ pub const ZapGoal = struct {
 
     pub fn isClosed(self: *const ZapGoal) bool {
         if (self.closed_at) |closed| {
-            return std.time.timestamp() > closed;
+            return @import("io.zig").timestamp() > closed;
         }
         return false;
     }

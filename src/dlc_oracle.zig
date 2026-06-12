@@ -15,7 +15,7 @@ pub const OracleAnnouncement = struct {
     asset_pair: ?AssetPair = null,
 
     pub fn parse(allocator: std.mem.Allocator, content: []const u8, tags_json: []const u8) !OracleAnnouncement {
-        var relays: std.ArrayListUnmanaged([]const u8) = .{};
+        var relays: std.ArrayListUnmanaged([]const u8) = .empty;
         errdefer {
             for (relays.items) |relay| allocator.free(relay);
             relays.deinit(allocator);
@@ -25,7 +25,7 @@ pub const OracleAnnouncement = struct {
         errdefer if (title) |t| allocator.free(t);
         var description: ?[]const u8 = null;
         errdefer if (description) |d| allocator.free(d);
-        var n_tags: std.ArrayListUnmanaged([]const u8) = .{};
+        var n_tags: std.ArrayListUnmanaged([]const u8) = .empty;
         defer {
             for (n_tags.items) |n| allocator.free(n);
             n_tags.deinit(allocator);
@@ -95,8 +95,8 @@ pub const OracleAnnouncement = struct {
     }
 
     pub fn serialize(self: *const OracleAnnouncement, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"kind\":88,\"content\":\"");
         try utils.writeJsonEscaped(writer, self.announcement_data);
@@ -136,7 +136,7 @@ pub const OracleAnnouncement = struct {
         }
 
         try writer.writeAll("]}");
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -149,7 +149,7 @@ pub const OracleAttestation = struct {
         var announcement_id: ?[]const u8 = null;
         errdefer if (announcement_id) |id| allocator.free(id);
         var asset_pair: ?AssetPair = null;
-        var n_tags: std.ArrayListUnmanaged([]const u8) = .{};
+        var n_tags: std.ArrayListUnmanaged([]const u8) = .empty;
         defer {
             for (n_tags.items) |n| allocator.free(n);
             n_tags.deinit(allocator);
@@ -201,8 +201,8 @@ pub const OracleAttestation = struct {
     }
 
     pub fn serialize(self: *const OracleAttestation, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"kind\":89,\"content\":\"");
         try utils.writeJsonEscaped(writer, self.attestation_data);
@@ -219,7 +219,7 @@ pub const OracleAttestation = struct {
         }
 
         try writer.writeAll("]}");
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -237,7 +237,7 @@ pub const TrustedOraclesList = struct {
     oracles: []TrustedOracle,
 
     pub fn parse(allocator: std.mem.Allocator, tags_json: []const u8) !TrustedOraclesList {
-        var oracles: std.ArrayListUnmanaged(TrustedOracle) = .{};
+        var oracles: std.ArrayListUnmanaged(TrustedOracle) = .empty;
         errdefer {
             for (oracles.items) |oracle| {
                 allocator.free(oracle.pubkey);
@@ -276,8 +276,8 @@ pub const TrustedOraclesList = struct {
     }
 
     pub fn serialize(self: *const TrustedOraclesList, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"kind\":10088,\"tags\":[");
 
@@ -295,12 +295,12 @@ pub const TrustedOraclesList = struct {
         }
 
         try writer.writeAll("]}");
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
 fn extractAllTagValues(allocator: std.mem.Allocator, json: []const u8, start_pos: usize) ![][]const u8 {
-    var values: std.ArrayListUnmanaged([]const u8) = .{};
+    var values: std.ArrayListUnmanaged([]const u8) = .empty;
     errdefer {
         for (values.items) |v| allocator.free(v);
         values.deinit(allocator);
@@ -429,7 +429,7 @@ fn extractSecondTagValue(json: []const u8, start_pos: usize) ?[]const u8 {
 }
 
 fn extractRelaysFromSTag(allocator: std.mem.Allocator, json: []const u8, start_pos: usize) ![][]const u8 {
-    var relays: std.ArrayListUnmanaged([]const u8) = .{};
+    var relays: std.ArrayListUnmanaged([]const u8) = .empty;
     errdefer {
         for (relays.items) |r| allocator.free(r);
         relays.deinit(allocator);

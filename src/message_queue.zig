@@ -3,8 +3,7 @@ const std = @import("std");
 pub const MessageQueue = struct {
     allocator: std.mem.Allocator,
     messages: std.ArrayListUnmanaged(QueuedMessage),
-    mutex: std.Thread.Mutex,
-    condition: std.Thread.Condition,
+    mutex: std.Io.Mutex,
     max_size: usize,
 
     pub const QueuedMessage = struct {
@@ -20,16 +19,15 @@ pub const MessageQueue = struct {
     pub fn initWithCapacity(allocator: std.mem.Allocator, max_size: usize) MessageQueue {
         return .{
             .allocator = allocator,
-            .messages = .{},
-            .mutex = .{},
-            .condition = .{},
+            .messages = .empty,
+            .mutex = .init,
             .max_size = max_size,
         };
     }
 
     pub fn deinit(self: *MessageQueue) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         for (self.messages.items) |item| {
             self.allocator.free(item.data);
@@ -39,8 +37,8 @@ pub const MessageQueue = struct {
     }
 
     pub fn push(self: *MessageQueue, data: []const u8, relay_url: []const u8) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         if (self.messages.items.len >= self.max_size) {
             const oldest = self.messages.orderedRemove(0);
@@ -57,14 +55,13 @@ pub const MessageQueue = struct {
         try self.messages.append(self.allocator, .{
             .data = duped_data,
             .relay_url = duped_url,
-            .received_at = std.time.timestamp(),
+            .received_at = @import("io.zig").timestamp(),
         });
-        self.condition.signal();
     }
 
     pub fn pop(self: *MessageQueue) ?QueuedMessage {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         if (self.messages.items.len == 0) {
             return null;
@@ -74,42 +71,43 @@ pub const MessageQueue = struct {
     }
 
     pub fn popWithTimeout(self: *MessageQueue, timeout_ns: u64) ?QueuedMessage {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = @import("io.zig").nanoTimestamp();
 
         while (self.messages.items.len == 0) {
-            const now = std.time.nanoTimestamp();
+            const now = @import("io.zig").nanoTimestamp();
             const elapsed: u64 = if (now > start_time) @intCast(now - start_time) else 0;
             if (elapsed >= timeout_ns) {
                 return null;
             }
 
             const remaining = timeout_ns - elapsed;
-            self.condition.timedWait(&self.mutex, remaining) catch {
-                return null;
-            };
+            const wait_ns = @min(remaining, 1_000_000);
+            self.mutex.unlock(@import("io.zig").io());
+            std.Io.sleep(@import("io.zig").io(), .{ .nanoseconds = @intCast(wait_ns) }, .awake) catch {};
+            self.mutex.lockUncancelable(@import("io.zig").io());
         }
 
         return self.messages.orderedRemove(0);
     }
 
     pub fn isEmpty(self: *MessageQueue) bool {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         return self.messages.items.len == 0;
     }
 
     pub fn size(self: *MessageQueue) usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
         return self.messages.items.len;
     }
 
     pub fn sortByTimestamp(self: *MessageQueue) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         std.mem.sort(QueuedMessage, self.messages.items, {}, struct {
             pub fn lessThan(_: void, a: QueuedMessage, b: QueuedMessage) bool {
@@ -124,8 +122,8 @@ pub const MessageQueue = struct {
     }
 
     pub fn clear(self: *MessageQueue) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
 
         for (self.messages.items) |item| {
             self.allocator.free(item.data);
@@ -186,9 +184,9 @@ test "sort by timestamp" {
     defer queue.deinit();
 
     try queue.push("msg1", "relay1");
-    std.Thread.sleep(1_000_000);
+    std.Io.sleep(@import("io.zig").io(), .{ .nanoseconds = 1_000_000 }, .awake) catch {};
     try queue.push("msg2", "relay2");
-    std.Thread.sleep(1_000_000);
+    std.Io.sleep(@import("io.zig").io(), .{ .nanoseconds = 1_000_000 }, .awake) catch {};
     try queue.push("msg3", "relay3");
 
     queue.sortByTimestamp();
@@ -269,12 +267,9 @@ test "thread safety - concurrent push and pop" {
                 var buf: [32]u8 = undefined;
                 const msg = std.fmt.bufPrint(&buf, "msg_{d}", .{i}) catch unreachable;
                 q.push(msg, "relay") catch {};
-                std.Thread.sleep(100_000);
+                std.Io.sleep(@import("io.zig").io(), .{ .nanoseconds = 100_000 }, .awake) catch {};
             }
             done.store(true, .release);
-            q.mutex.lock();
-            q.condition.broadcast();
-            q.mutex.unlock();
         }
     }.run, .{ &queue, &producer_done });
 

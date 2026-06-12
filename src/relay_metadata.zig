@@ -31,7 +31,7 @@ pub const RelayList = struct {
 
     pub fn init(allocator: std.mem.Allocator) RelayList {
         return .{
-            .relays = .{},
+            .relays = .empty,
             .allocator = allocator,
         };
     }

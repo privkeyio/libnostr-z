@@ -1,6 +1,7 @@
 const std = @import("std");
-const net = std.net;
+const net = std.Io.net;
 const mem = std.mem;
+const io_mod = @import("../io.zig");
 const Allocator = mem.Allocator;
 
 const handshake = @import("handshake.zig");
@@ -70,14 +71,15 @@ pub const Client = struct {
             .sec = @intCast(seconds),
             .usec = @intCast(microseconds),
         };
-        std.posix.setsockopt(self.tcp_stream.handle, std.posix.SO.RCVTIMEO, std.mem.asBytes(&timeval)) catch {};
+        std.posix.setsockopt(self.tcp_stream.socket.handle, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&timeval)) catch {};
     }
 
     pub fn connect(allocator: Allocator, uri: []const u8) !Self {
         const parsed = try Uri.parse(uri);
 
-        const tcp_stream = try net.tcpConnectToHost(allocator, parsed.host, parsed.port);
-        errdefer tcp_stream.close();
+        const host_name = try net.HostName.init(parsed.host);
+        const tcp_stream = try host_name.connect(io_mod.io(), parsed.port, .{ .mode = .stream });
+        errdefer tcp_stream.close(io_mod.io());
 
         var ssl_stream: ?ssl.SslStream = null;
         if (parsed.is_tls) {
@@ -104,7 +106,7 @@ pub const Client = struct {
         if (self.ssl_stream) |*s| {
             s.close();
         } else {
-            self.tcp_stream.close();
+            self.tcp_stream.close(io_mod.io());
         }
     }
 
@@ -140,7 +142,7 @@ pub const Client = struct {
         if (self.ssl_stream) |*s| {
             return s.read(buffer);
         } else {
-            return self.tcp_stream.read(buffer);
+            return std.posix.read(self.tcp_stream.socket.handle, buffer);
         }
     }
 
@@ -148,7 +150,10 @@ pub const Client = struct {
         if (self.ssl_stream) |*s| {
             try s.writeAll(data);
         } else {
-            try self.tcp_stream.writeAll(data);
+            var wbuf: [4096]u8 = undefined;
+            var sw = self.tcp_stream.writer(io_mod.io(), &wbuf);
+            try sw.interface.writeAll(data);
+            try sw.interface.flush();
         }
     }
 

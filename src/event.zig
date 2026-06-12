@@ -90,7 +90,7 @@ pub const Event = struct {
             .kind_val = kind_num,
             .raw_json = json,
             .allocator = allocator,
-            .e_tags = .{},
+            .e_tags = .empty,
             .tags = TagIndex.init(allocator),
         };
 
@@ -139,7 +139,7 @@ pub const Event = struct {
     }
 
     pub fn validate(self: *const Event) Error!void {
-        const now = std.time.timestamp();
+        const now = @import("io.zig").timestamp();
         if (self.created_at_val > now + 900) return error.FutureEvent;
 
         const computed_id = self.computeId() catch return error.IdMismatch;
@@ -402,7 +402,7 @@ pub fn kindType(kind_num: i32) Kind.Type {
 
 pub fn isExpired(event: *const Event) bool {
     if (event.expiration_val) |exp| {
-        return std.time.timestamp() > exp;
+        return @import("io.zig").timestamp() > exp;
     }
     return false;
 }

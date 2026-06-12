@@ -84,7 +84,7 @@ pub fn encrypt(
     defer allocator.free(ciphertext);
 
     var iv: [BLOCK_SIZE]u8 = undefined;
-    std.crypto.random.bytes(&iv);
+    @import("io.zig").randomBytes(&iv);
 
     aesCbcEncrypt(&shared_secret, &iv, padded, ciphertext);
 

@@ -31,8 +31,8 @@ pub const Rumor = struct {
     tags: []const []const []const u8,
 
     pub fn serializeJson(self: *const Rumor, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"id\":\"");
         var id_hex: [64]u8 = undefined;
@@ -67,7 +67,7 @@ pub const Rumor = struct {
         try utils.writeJsonEscaped(writer, self.content);
         try writer.writeAll("\"}");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -91,8 +91,8 @@ pub fn createRumor(
     const commitment_buf = try allocator.alloc(u8, 131072);
     defer allocator.free(commitment_buf);
 
-    var fbs = std.io.fixedBufferStream(commitment_buf);
-    const writer = fbs.writer();
+    var fbs = std.Io.Writer.fixed(commitment_buf);
+    const writer = &fbs;
 
     try writer.writeAll("[0,\"");
     var pk_hex: [64]u8 = undefined;
@@ -120,16 +120,16 @@ pub fn createRumor(
     try utils.writeJsonEscaped(writer, content);
     try writer.writeAll("\"]");
 
-    const commitment = fbs.getWritten();
+    const commitment = fbs.buffered();
     std.crypto.hash.sha2.Sha256.hash(commitment, &rumor.id, .{});
 
     return rumor;
 }
 
 fn randomPastTimestamp() i64 {
-    const now = std.time.timestamp();
+    const now = @import("io.zig").timestamp();
     var random_bytes: [8]u8 = undefined;
-    std.crypto.random.bytes(&random_bytes);
+    @import("io.zig").randomBytes(&random_bytes);
     const random_offset = @as(i64, @intCast(std.mem.readInt(u64, &random_bytes, .little) % @as(u64, @intCast(TWO_DAYS_SECS))));
     return now - random_offset;
 }
@@ -148,8 +148,8 @@ fn signAndSerialize(
 
     const commitment_buf = try allocator.alloc(u8, 131072);
     defer allocator.free(commitment_buf);
-    var fbs = std.io.fixedBufferStream(commitment_buf);
-    const cwriter = fbs.writer();
+    var fbs = std.Io.Writer.fixed(commitment_buf);
+    const cwriter = &fbs;
 
     try cwriter.writeAll("[0,\"");
     var pk_hex: [64]u8 = undefined;
@@ -177,15 +177,15 @@ fn signAndSerialize(
     try utils.writeJsonEscaped(cwriter, content);
     try cwriter.writeAll("\"]");
 
-    const commitment = fbs.getWritten();
+    const commitment = fbs.buffered();
     std.crypto.hash.sha2.Sha256.hash(commitment, &id, .{});
 
     crypto.sign(&keypair.secret_key, &id, &sig) catch {
         return error.SignatureFailed;
     };
 
-    var out_fbs = std.io.fixedBufferStream(out_buf);
-    const writer = out_fbs.writer();
+    var out_fbs = std.Io.Writer.fixed(out_buf);
+    const writer = &out_fbs;
 
     try writer.writeAll("{\"id\":\"");
     var id_hex: [64]u8 = undefined;
@@ -223,7 +223,7 @@ fn signAndSerialize(
     try writer.writeAll(&sig_hex);
     try writer.writeAll("\"}");
 
-    return out_fbs.getWritten();
+    return out_fbs.buffered();
 }
 
 pub fn createSeal(
@@ -564,7 +564,7 @@ test "timestamps are randomized in past" {
     const sender = Keypair.generate();
     const recipient = Keypair.generate();
 
-    const now = std.time.timestamp();
+    const now = @import("io.zig").timestamp();
     const rumor = try createRumor(1, "test", &[_][]const []const u8{}, now, &sender, allocator);
 
     var seal_buf: [65536]u8 = undefined;

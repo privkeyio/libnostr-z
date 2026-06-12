@@ -46,7 +46,7 @@ pub const IdentityList = struct {
 
     pub fn init(allocator: std.mem.Allocator) IdentityList {
         return .{
-            .identities = .{},
+            .identities = .empty,
             .allocator = allocator,
         };
     }
@@ -152,8 +152,8 @@ const IdentityTagIterator = struct {
 };
 
 pub fn getProofUrl(identity: ExternalIdentity, buf: []u8) ?[]u8 {
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
+    var stream = std.Io.Writer.fixed(buf);
+    const writer = &stream;
 
     switch (identity.platform) {
         .github => {
@@ -171,15 +171,15 @@ pub fn getProofUrl(identity: ExternalIdentity, buf: []u8) ?[]u8 {
         .unknown => return null,
     }
 
-    return buf[0..stream.pos];
+    return stream.buffered();
 }
 
 pub fn getExpectedProofText(platform: Platform, pubkey: *const [32]u8, buf: []u8) ?[]u8 {
     var npub_buf: [63]u8 = undefined;
     bech32.encodeNpub(pubkey, &npub_buf);
 
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
+    var stream = std.Io.Writer.fixed(buf);
+    const writer = &stream;
 
     switch (platform) {
         .github => {
@@ -194,7 +194,7 @@ pub fn getExpectedProofText(platform: Platform, pubkey: *const [32]u8, buf: []u8
         .unknown => return null,
     }
 
-    return buf[0..stream.pos];
+    return stream.buffered();
 }
 
 pub fn buildIdentityTags(

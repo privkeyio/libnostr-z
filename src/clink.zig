@@ -45,8 +45,8 @@ pub const OffersResponse = struct {
     }
 
     pub fn format(self: OffersResponse, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         if (self.bolt11) |b| {
             try writer.writeAll("{\"bolt11\":\"");
@@ -59,7 +59,7 @@ pub const OffersResponse = struct {
         } else {
             try writer.writeAll("{\"res\":\"ok\"}");
         }
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -133,8 +133,8 @@ pub const DebitResponse = struct {
     }
 
     pub fn format(self: DebitResponse, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         if (self.preimage) |p| {
             try writer.writeAll("{\"res\":\"ok\",\"preimage\":\"");
@@ -143,7 +143,7 @@ pub const DebitResponse = struct {
         } else {
             try writer.writeAll("{\"res\":\"ok\"}");
         }
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -205,8 +205,8 @@ pub const ManageResponse = struct {
     }
 
     pub fn format(self: ManageResponse, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"res\":\"ok\",\"resource\":\"");
         try utils.writeJsonEscaped(writer, self.resource);
@@ -218,7 +218,7 @@ pub const ManageResponse = struct {
         }
 
         try writer.writeByte('}');
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -308,8 +308,8 @@ pub const OffersError = struct {
     latest: ?[]const u8 = null,
 
     pub fn format(self: OffersError, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"error\":\"");
         try utils.writeJsonEscaped(writer, self.error_msg);
@@ -326,7 +326,7 @@ pub const OffersError = struct {
         }
 
         try writer.writeByte('}');
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -339,8 +339,8 @@ pub const GfyError = struct {
     field: ?[]const u8 = null,
 
     pub fn format(self: GfyError, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.print("{{\"res\":\"GFY\",\"code\":{d},\"error\":\"", .{self.code.toInt()});
         try utils.writeJsonEscaped(writer, self.error_msg);
@@ -365,7 +365,7 @@ pub const GfyError = struct {
         }
 
         try writer.writeByte('}');
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 

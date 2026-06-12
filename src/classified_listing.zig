@@ -55,8 +55,8 @@ pub const ClassifiedListing = struct {
 
     pub fn init(allocator: std.mem.Allocator) ClassifiedListing {
         return .{
-            .hashtags = .{},
-            .images = .{},
+            .hashtags = .empty,
+            .images = .empty,
             .allocator = allocator,
         };
     }

@@ -161,8 +161,8 @@ pub const Request = struct {
     }
 
     pub fn serialize(self: *const Request, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"id\":\"");
         try utils.writeJsonEscaped(writer, self.id);
@@ -211,7 +211,7 @@ pub const Request = struct {
         }
 
         try writer.writeAll("]}");
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -241,8 +241,8 @@ pub const Response = struct {
     }
 
     pub fn serialize(self: *const Response, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"id\":\"");
         try utils.writeJsonEscaped(writer, self.id);
@@ -263,7 +263,7 @@ pub const Response = struct {
         }
 
         try writer.writeAll("}");
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 
     pub fn isAuthChallenge(self: *const Response) bool {
@@ -303,7 +303,7 @@ pub const BunkerUri = struct {
         const query = after_prefix[query_start + 1 ..];
 
         var secret: ?[]const u8 = null;
-        var relays: std.ArrayListUnmanaged([]const u8) = .{};
+        var relays: std.ArrayListUnmanaged([]const u8) = .empty;
         errdefer {
             for (relays.items) |r| allocator.free(r);
             relays.deinit(allocator);
@@ -341,8 +341,8 @@ pub const BunkerUri = struct {
     }
 
     pub fn format(self: *const BunkerUri, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("bunker://");
         var pk_hex: [64]u8 = undefined;
@@ -361,7 +361,7 @@ pub const BunkerUri = struct {
             try percentEncode(writer, s);
         }
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -395,7 +395,7 @@ pub const NostrConnectUri = struct {
         var name: ?[]const u8 = null;
         var url_field: ?[]const u8 = null;
         var image: ?[]const u8 = null;
-        var relays: std.ArrayListUnmanaged([]const u8) = .{};
+        var relays: std.ArrayListUnmanaged([]const u8) = .empty;
         errdefer {
             for (relays.items) |r| allocator.free(r);
             relays.deinit(allocator);
@@ -454,8 +454,8 @@ pub const NostrConnectUri = struct {
     }
 
     pub fn format(self: *const NostrConnectUri, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("nostrconnect://");
         var pk_hex: [64]u8 = undefined;
@@ -492,7 +492,7 @@ pub const NostrConnectUri = struct {
             try percentEncode(writer, img);
         }
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 

@@ -44,6 +44,7 @@
 //! - `classified_listing.zig` - NIP-99 classified listings
 //! - `nip04.zig` - NIP-04 Encrypted Direct Messages (deprecated)
 
+pub const io = @import("io.zig");
 pub const crypto = @import("crypto.zig");
 pub const http_auth = @import("http_auth.zig");
 pub const negentropy = @import("negentropy.zig");

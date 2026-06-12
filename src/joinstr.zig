@@ -86,8 +86,8 @@ pub const Pool = struct {
     }
 
     pub fn serialize(self: *const Pool, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"type\":\"new_pool\",\"id\":\"");
         try utils.writeJsonEscaped(writer, self.id);
@@ -113,7 +113,7 @@ pub const Pool = struct {
         }
         try writer.writeAll("}");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -129,14 +129,14 @@ pub const OutputMessage = struct {
     }
 
     pub fn serialize(self: *const OutputMessage, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"address\":\"");
         try utils.writeJsonEscaped(writer, self.address);
         try writer.writeAll("\",\"type\":\"output\"}");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -152,14 +152,14 @@ pub const InputMessage = struct {
     }
 
     pub fn serialize(self: *const InputMessage, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"psbt\":\"");
         try utils.writeJsonEscaped(writer, self.psbt);
         try writer.writeAll("\",\"type\":\"input\"}");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 

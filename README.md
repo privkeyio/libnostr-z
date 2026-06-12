@@ -1,9 +1,11 @@
 # libnostr-z
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Zig](https://img.shields.io/badge/Zig-0.15-orange.svg)](https://ziglang.org/)
+[![Zig](https://img.shields.io/badge/Zig-0.16-orange.svg)](https://ziglang.org/)
 
 A Zig library for the Nostr protocol.
+
+> Requires Zig 0.16. For Zig 0.15, use the `v0.2.0` release.
 
 ## NIP Support
 

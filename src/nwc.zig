@@ -228,7 +228,7 @@ pub const ConnectionUri = struct {
 
         var secret: ?[32]u8 = null;
         var lud16: ?[]const u8 = null;
-        var relays: std.ArrayListUnmanaged([]const u8) = .{};
+        var relays: std.ArrayListUnmanaged([]const u8) = .empty;
         errdefer {
             for (relays.items) |r| allocator.free(r);
             relays.deinit(allocator);
@@ -273,8 +273,8 @@ pub const ConnectionUri = struct {
     }
 
     pub fn format(self: *const ConnectionUri, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("nostr+walletconnect://");
         var pk_hex: [64]u8 = undefined;
@@ -298,7 +298,7 @@ pub const ConnectionUri = struct {
             try percentEncode(writer, l);
         }
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -437,8 +437,8 @@ pub const Request = struct {
     }
 
     pub fn serialize(self: *const Request, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"method\":\"");
         try writer.writeAll(self.method.toString());
@@ -569,7 +569,7 @@ pub const Request = struct {
         }
 
         try writer.writeAll("}}");
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -668,8 +668,8 @@ pub const Response = struct {
     }
 
     pub fn serialize(self: *const Response, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"result_type\":\"");
         try writer.writeAll(self.result_type.toString());
@@ -780,7 +780,7 @@ pub const Response = struct {
         }
 
         try writer.writeAll("}");
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -801,8 +801,8 @@ pub const Notification = struct {
     }
 
     pub fn serialize(self: *const Notification, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         try writer.writeAll("{\"notification_type\":\"");
         try writer.writeAll(self.notification_type.toString());
@@ -810,7 +810,7 @@ pub const Notification = struct {
         try serializeTransaction(writer, self.notification);
         try writer.writeAll("}}");
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 
@@ -842,15 +842,15 @@ pub const InfoEvent = struct {
     }
 
     pub fn serializeContent(self: *const InfoEvent, buf: []u8) ![]u8 {
-        var fbs = std.io.fixedBufferStream(buf);
-        const writer = fbs.writer();
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
 
         for (self.getCapabilities(), 0..) |cap, i| {
             if (i > 0) try writer.writeAll(" ");
             try writer.writeAll(cap.toString());
         }
 
-        return fbs.getWritten();
+        return fbs.buffered();
     }
 };
 

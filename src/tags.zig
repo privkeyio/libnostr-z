@@ -25,7 +25,7 @@ pub const TagIndex = struct {
     pub fn init(allocator: std.mem.Allocator) TagIndex {
         var entries: [52]std.ArrayListUnmanaged(TagValue) = undefined;
         for (&entries) |*e| {
-            e.* = .{};
+            e.* = .empty;
         }
         return .{ .entries = entries, .allocator = allocator };
     }

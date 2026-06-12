@@ -489,7 +489,7 @@ pub fn validateNip98Auth(auth_header: ?[]const u8, body: []const u8, request_url
         return AuthResult.fail("{\"error\":\"authorization event must be kind 27235\"}");
     }
 
-    const now = std.time.timestamp();
+    const now = @import("io.zig").timestamp();
     const created = event.createdAt();
     const time_diff = if (now > created) now - created else created - now;
     if (time_diff > 60) {

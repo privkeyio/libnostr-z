@@ -204,7 +204,7 @@ pub const Frame = struct {
 
     fn maskingKey() [4]u8 {
         var masking_key: [4]u8 = undefined;
-        std.crypto.random.bytes(&masking_key);
+        @import("../io.zig").randomBytes(&masking_key);
         return masking_key;
     }
 

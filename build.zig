@@ -48,6 +48,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/root.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
 
@@ -59,12 +60,11 @@ pub fn build(b: *std.Build) void {
         tests.use_llvm = true;
         tests.use_lld = true;
     }
-    tests.linkLibrary(noscrypt.artifact("noscrypt"));
-    tests.linkLibrary(sz_lib);
+    tests.root_module.linkLibrary(noscrypt.artifact("noscrypt"));
+    tests.root_module.linkLibrary(sz_lib);
     tests.root_module.addIncludePath(noscrypt.path("include"));
     tests.root_module.linkSystemLibrary("ssl", .{});
     tests.root_module.linkSystemLibrary("crypto", .{});
-    tests.linkLibC();
 
     const run_tests = b.addRunArtifact(tests);
     b.step("test", "Run tests").dependOn(&run_tests.step);

@@ -7,7 +7,7 @@ const nc = @cImport({
 const NC_SUCCESS: i64 = 0;
 
 var ctx: ?*nc.NCContext = null;
-var init_mutex: std.Thread.Mutex = .{};
+var init_mutex: std.Io.Mutex = .init;
 var initialized = false;
 var init_err = false;
 
@@ -21,8 +21,8 @@ pub const CryptoError = error{
 pub fn init() !void {
     if (@atomicLoad(bool, &initialized, .acquire)) return;
 
-    init_mutex.lock();
-    defer init_mutex.unlock();
+    init_mutex.lockUncancelable(@import("io.zig").io());
+    defer init_mutex.unlock(@import("io.zig").io());
 
     if (initialized) return;
     if (init_err) return error.InitFailed;
@@ -34,7 +34,7 @@ pub fn init() !void {
     }
 
     var entropy: [32]u8 = undefined;
-    std.crypto.random.bytes(&entropy);
+    @import("io.zig").randomBytes(&entropy);
     defer std.crypto.secureZero(u8, &entropy);
 
     const result = nc.NCInitContext(ctx, &entropy);
@@ -47,8 +47,8 @@ pub fn init() !void {
 }
 
 pub fn cleanup() void {
-    init_mutex.lock();
-    defer init_mutex.unlock();
+    init_mutex.lockUncancelable(@import("io.zig").io());
+    defer init_mutex.unlock(@import("io.zig").io());
 
     if (ctx) |c| {
         _ = nc.NCDestroyContext(c);
@@ -75,7 +75,7 @@ pub fn sign(secret_key: *const [32]u8, message: *const [32]u8, sig_out: *[64]u8)
     const sk = nc.NCByteCastToSecretKey(secret_key);
 
     var random: [32]u8 = undefined;
-    std.crypto.random.bytes(&random);
+    @import("io.zig").randomBytes(&random);
     defer std.crypto.secureZero(u8, &random);
 
     const result = nc.NCSignDigest(ctx, sk, &random, message, sig_out);
@@ -179,7 +179,7 @@ pub fn nip44Encrypt(
     defer allocator.free(ciphertext);
 
     var nonce: [32]u8 = undefined;
-    std.crypto.random.bytes(&nonce);
+    @import("io.zig").randomBytes(&nonce);
 
     var hmac_key: [32]u8 = undefined;
     defer std.crypto.secureZero(u8, &hmac_key);
