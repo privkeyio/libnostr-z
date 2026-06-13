@@ -439,15 +439,68 @@ pub const ClientMsg = struct {
         return fbs.buffered();
     }
 
-    pub fn closeMsg(sub_id: []const u8, buf: []u8) ![]u8 {
+    fn singleArgMsg(verb: []const u8, sub_id: []const u8, buf: []u8) ![]u8 {
         var fbs = std.Io.Writer.fixed(buf);
         const writer = &fbs;
 
-        try writer.writeAll("[\"CLOSE\",\"");
+        try writer.writeAll("[\"");
+        try writer.writeAll(verb);
+        try writer.writeAll("\",\"");
         try writer.writeAll(sub_id);
         try writer.writeAll("\"]");
 
         return fbs.buffered();
+    }
+
+    fn writeHexPayload(fbs: *std.Io.Writer, buf: []u8, payload: []const u8) !void {
+        const hex_len = payload.len * 2;
+        if (fbs.end + hex_len + 2 > buf.len) return error.NoSpaceLeft;
+        hex.encode(payload, buf[fbs.end..][0..hex_len]);
+        fbs.end += hex_len;
+    }
+
+    pub fn closeMsg(sub_id: []const u8, buf: []u8) ![]u8 {
+        return singleArgMsg("CLOSE", sub_id, buf);
+    }
+
+    // NIP-77: ["NEG-OPEN", <sub_id>, <filter>, "<hex payload>"]. payload is the
+    // raw negentropy message bytes; it is hex-encoded here.
+    pub fn negOpenMsg(sub_id: []const u8, filter: *const Filter, payload: []const u8, buf: []u8) ![]u8 {
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
+
+        try writer.writeAll("[\"NEG-OPEN\",\"");
+        try writer.writeAll(sub_id);
+        try writer.writeAll("\",");
+
+        const filter_json = try filter.serialize(buf[fbs.end..]);
+        fbs.end += filter_json.len;
+
+        try writer.writeAll(",\"");
+        try writeHexPayload(&fbs, buf, payload);
+        try writer.writeAll("\"]");
+
+        return fbs.buffered();
+    }
+
+    // NIP-77: ["NEG-MSG", <sub_id>, "<hex payload>"].
+    pub fn negMsg(sub_id: []const u8, payload: []const u8, buf: []u8) ![]u8 {
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
+
+        try writer.writeAll("[\"NEG-MSG\",\"");
+        try writer.writeAll(sub_id);
+        try writer.writeAll("\",\"");
+
+        try writeHexPayload(&fbs, buf, payload);
+
+        try writer.writeAll("\"]");
+        return fbs.buffered();
+    }
+
+    // NIP-77: ["NEG-CLOSE", <sub_id>].
+    pub fn negCloseMsg(sub_id: []const u8, buf: []u8) ![]u8 {
+        return singleArgMsg("NEG-CLOSE", sub_id, buf);
     }
 };
 

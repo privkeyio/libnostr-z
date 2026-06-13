@@ -79,6 +79,7 @@ pub const ws = @import("ws/ws.zig");
 pub const message_queue = @import("message_queue.zig");
 pub const pool = @import("pool.zig");
 pub const relay = @import("relay.zig");
+pub const sync = @import("sync.zig");
 pub const signer = @import("signer.zig");
 pub const nip11 = @import("nip11.zig");
 pub const badges = @import("badges.zig");
@@ -200,6 +201,7 @@ test {
     refAllDeclsRecursive(@import("message_queue.zig"));
     refAllDeclsRecursive(@import("pool.zig"));
     refAllDeclsRecursive(@import("relay.zig"));
+    refAllDeclsRecursive(@import("sync.zig"));
     refAllDeclsRecursive(@import("signer.zig"));
     refAllDeclsRecursive(@import("nip11.zig"));
     refAllDeclsRecursive(@import("badges.zig"));
