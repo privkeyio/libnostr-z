@@ -8,6 +8,12 @@ const c = @cImport({
     @cInclude("openssl/err.h");
 });
 
+// Defined directly rather than via c.SSL_OP_NO_TICKET: translate-c renders
+// OpenSSL's SSL_OP_BIT(n) macro as a u64 shift amount, which fails to compile
+// under Zig 0.16 (shift counts must fit the operand width). The value is stable
+// ABI: SSL_OP_NO_TICKET == SSL_OP_BIT(14) == 1 << 14.
+const SSL_OP_NO_TICKET = 0x00004000;
+
 pub const SslError = error{
     SslInitFailed,
     SslContextFailed,
@@ -35,7 +41,7 @@ pub const SslStream = struct {
             return error.SslContextFailed;
         }
 
-        _ = c.SSL_CTX_set_options(ctx, c.SSL_OP_NO_TICKET);
+        _ = c.SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
 
         if (c.SSL_CTX_set_default_verify_paths(ctx) != 1) {
             return error.SslContextFailed;
