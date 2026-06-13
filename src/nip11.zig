@@ -699,3 +699,47 @@ test "parse fees with string containing braces" {
     try std.testing.expectEqualStrings("msats", adm.unit().?);
     try std.testing.expect(adm_iter.next() == null);
 }
+
+// Convert a relay URL to its NIP-11 HTTP(S) form: ws -> http, wss -> https.
+// http/https pass through; a bare host is assumed https.
+fn toHttpUrl(url: []const u8, buf: []u8) ![]const u8 {
+    if (std.mem.startsWith(u8, url, "wss://")) return std.fmt.bufPrint(buf, "https://{s}", .{url[6..]});
+    if (std.mem.startsWith(u8, url, "ws://")) return std.fmt.bufPrint(buf, "http://{s}", .{url[5..]});
+    if (std.mem.startsWith(u8, url, "http://") or std.mem.startsWith(u8, url, "https://")) return url;
+    return std.fmt.bufPrint(buf, "https://{s}", .{url});
+}
+
+/// Fetch the NIP-11 relay information document over HTTP(S) with
+/// `Accept: application/nostr+json`. Accepts ws/wss or http/https URLs. Returns
+/// the raw JSON body, owned by the caller. Parse it with RelayInformation.parse.
+pub fn fetchDocument(allocator: std.mem.Allocator, url: []const u8) ![]u8 {
+    const io = @import("io.zig").io();
+
+    var url_buf: [2048]u8 = undefined;
+    const http_url = try toHttpUrl(url, &url_buf);
+
+    var client: std.http.Client = .{ .allocator = allocator, .io = io };
+    defer client.deinit();
+    if (std.mem.startsWith(u8, http_url, "https://")) {
+        client.ca_bundle.rescan(allocator, io, std.Io.Timestamp.now(io, .awake)) catch {};
+    }
+
+    var body_buf: [65536]u8 = undefined;
+    var body_writer = std.Io.Writer.fixed(&body_buf);
+
+    const res = try client.fetch(.{
+        .location = .{ .url = http_url },
+        .extra_headers = &.{.{ .name = "accept", .value = "application/nostr+json" }},
+        .response_writer = &body_writer,
+    });
+    if (res.status != .ok) return error.HttpStatus;
+
+    return allocator.dupe(u8, body_writer.buffered());
+}
+
+test toHttpUrl {
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings("https://relay.example.com", try toHttpUrl("wss://relay.example.com", &buf));
+    try std.testing.expectEqualStrings("http://127.0.0.1:7777", try toHttpUrl("ws://127.0.0.1:7777", &buf));
+    try std.testing.expectEqualStrings("https://x.com", try toHttpUrl("https://x.com", &buf));
+}
