@@ -721,14 +721,22 @@ pub fn fetchDocument(allocator: std.mem.Allocator, url: []const u8) ![]u8 {
     var client: std.http.Client = .{ .allocator = allocator, .io = io };
     defer client.deinit();
     if (std.mem.startsWith(u8, http_url, "https://")) {
-        client.ca_bundle.rescan(allocator, io, std.Io.Timestamp.now(io, .awake)) catch {};
+        // Wall-clock time is required: rescan validates certificate validity
+        // periods, which are absolute dates. A monotonic clock would make every
+        // cert appear invalid and silently empty the bundle.
+        try client.ca_bundle.rescan(allocator, io, std.Io.Timestamp.now(io, .real));
     }
 
     var body_buf: [65536]u8 = undefined;
     var body_writer = std.Io.Writer.fixed(&body_buf);
 
+    // std.http.Client.fetch in Zig 0.16 exposes no connect/read timeout; the
+    // only timeout hook is ConnectTcpOptions.timeout on the low-level path.
+    // Disallow redirects: NIP-11 documents are served directly by the relay,
+    // and following redirects would open an SSRF vector to internal hosts.
     const res = try client.fetch(.{
         .location = .{ .url = http_url },
+        .redirect_behavior = .not_allowed,
         .extra_headers = &.{.{ .name = "accept", .value = "application/nostr+json" }},
         .response_writer = &body_writer,
     });
@@ -742,4 +750,5 @@ test toHttpUrl {
     try std.testing.expectEqualStrings("https://relay.example.com", try toHttpUrl("wss://relay.example.com", &buf));
     try std.testing.expectEqualStrings("http://127.0.0.1:7777", try toHttpUrl("ws://127.0.0.1:7777", &buf));
     try std.testing.expectEqualStrings("https://x.com", try toHttpUrl("https://x.com", &buf));
+    try std.testing.expectEqualStrings("https://relay.example.com", try toHttpUrl("relay.example.com", &buf));
 }
