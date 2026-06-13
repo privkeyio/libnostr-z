@@ -174,6 +174,7 @@ test {
     refAllDeclsRecursive(@import("stringzilla.zig"));
     refAllDeclsRecursive(@import("utils.zig"));
     refAllDeclsRecursive(@import("hex.zig"));
+    refAllDeclsRecursive(@import("io.zig"));
     refAllDeclsRecursive(@import("nwc.zig"));
     refAllDeclsRecursive(@import("crypto.zig"));
     refAllDeclsRecursive(@import("nip17.zig"));

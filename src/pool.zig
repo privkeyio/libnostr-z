@@ -737,7 +737,10 @@ pub const Pool = struct {
                 eose_count += 1;
             } else if (parsed.msg_type == .event) {
                 if (self.parseEventFromMessage(msg.data)) |event_data| {
-                    var event = Event.parseWithAllocatorOwned(event_data, self.allocator) catch continue;
+                    var event = Event.parseWithAllocatorOwned(event_data, self.allocator) catch |err| switch (err) {
+                        error.OutOfMemory => return err,
+                        else => continue,
+                    };
                     errdefer event.deinit();
                     try events.append(self.allocator, event);
                 }
