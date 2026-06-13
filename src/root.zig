@@ -44,6 +44,8 @@
 //! - `classified_listing.zig` - NIP-99 classified listings
 //! - `nip04.zig` - NIP-04 Encrypted Direct Messages (deprecated)
 
+const std = @import("std");
+
 pub const io = @import("io.zig");
 pub const crypto = @import("crypto.zig");
 pub const http_auth = @import("http_auth.zig");
@@ -135,55 +137,73 @@ pub const stringzilla = @import("stringzilla.zig");
 pub const utils = @import("utils.zig");
 pub const hex = @import("hex.zig");
 
+// Recursively reference every declaration so the compiler analyzes all function
+// bodies, not just the ones with tests. Zig only compiles referenced code, so
+// without this an untested pub fn (e.g. a relay/ws client method) can ship
+// broken; CI runs `zig build test`, which exercises this. (std dropped the
+// recursive variant; this reimplements it for 0.16.)
+fn refAllDeclsRecursive(comptime T: type) void {
+    inline for (comptime std.meta.declarations(T)) |decl| {
+        if (@TypeOf(@field(T, decl.name)) == type) {
+            switch (@typeInfo(@field(T, decl.name))) {
+                .@"struct", .@"enum", .@"union", .@"opaque" => refAllDeclsRecursive(@field(T, decl.name)),
+                else => {},
+            }
+        }
+        _ = &@field(T, decl.name);
+    }
+}
+
 test {
-    _ = @import("http_auth.zig");
-    _ = @import("tags.zig");
-    _ = @import("event.zig");
-    _ = @import("filter.zig");
-    _ = @import("messages.zig");
-    _ = @import("builder.zig");
-    _ = @import("auth.zig");
-    _ = @import("replaceable.zig");
-    _ = @import("index_keys.zig");
-    _ = @import("bech32.zig");
-    _ = @import("relay_metadata.zig");
-    _ = @import("external_identities.zig");
-    _ = @import("relay_groups.zig");
-    _ = @import("pow.zig");
-    _ = @import("negentropy.zig");
-    _ = @import("stringzilla.zig");
-    _ = @import("utils.zig");
-    _ = @import("hex.zig");
-    _ = @import("nwc.zig");
-    _ = @import("crypto.zig");
-    _ = @import("nip17.zig");
-    _ = @import("nip21.zig");
-    _ = @import("nip25.zig");
-    _ = @import("nip27.zig");
-    _ = @import("nip28.zig");
-    _ = @import("nip43.zig");
-    _ = @import("nip46.zig");
-    _ = @import("nip05.zig");
-    _ = @import("nip06.zig");
-    _ = @import("nip10.zig");
-    _ = @import("nip18.zig");
-    _ = @import("nip49.zig");
-    _ = @import("nip57.zig");
-    _ = @import("nip59.zig");
-    _ = @import("nip86.zig");
-    _ = @import("dlc_oracle.zig");
-    _ = @import("clink.zig");
-    _ = @import("joinstr.zig");
-    _ = @import("custom_emoji.zig");
-    _ = @import("ws/ws.zig");
-    _ = @import("message_queue.zig");
-    _ = @import("pool.zig");
-    _ = @import("relay.zig");
-    _ = @import("signer.zig");
-    _ = @import("nip11.zig");
-    _ = @import("badges.zig");
-    _ = @import("zap_goal.zig");
-    _ = @import("file_metadata.zig");
-    _ = @import("classified_listing.zig");
-    _ = @import("nip04.zig");
+    @setEvalBranchQuota(1_000_000);
+    refAllDeclsRecursive(@import("http_auth.zig"));
+    refAllDeclsRecursive(@import("tags.zig"));
+    refAllDeclsRecursive(@import("event.zig"));
+    refAllDeclsRecursive(@import("filter.zig"));
+    refAllDeclsRecursive(@import("messages.zig"));
+    refAllDeclsRecursive(@import("builder.zig"));
+    refAllDeclsRecursive(@import("auth.zig"));
+    refAllDeclsRecursive(@import("replaceable.zig"));
+    refAllDeclsRecursive(@import("index_keys.zig"));
+    refAllDeclsRecursive(@import("bech32.zig"));
+    refAllDeclsRecursive(@import("relay_metadata.zig"));
+    refAllDeclsRecursive(@import("external_identities.zig"));
+    refAllDeclsRecursive(@import("relay_groups.zig"));
+    refAllDeclsRecursive(@import("pow.zig"));
+    refAllDeclsRecursive(@import("negentropy.zig"));
+    refAllDeclsRecursive(@import("stringzilla.zig"));
+    refAllDeclsRecursive(@import("utils.zig"));
+    refAllDeclsRecursive(@import("hex.zig"));
+    refAllDeclsRecursive(@import("nwc.zig"));
+    refAllDeclsRecursive(@import("crypto.zig"));
+    refAllDeclsRecursive(@import("nip17.zig"));
+    refAllDeclsRecursive(@import("nip21.zig"));
+    refAllDeclsRecursive(@import("nip25.zig"));
+    refAllDeclsRecursive(@import("nip27.zig"));
+    refAllDeclsRecursive(@import("nip28.zig"));
+    refAllDeclsRecursive(@import("nip43.zig"));
+    refAllDeclsRecursive(@import("nip46.zig"));
+    refAllDeclsRecursive(@import("nip05.zig"));
+    refAllDeclsRecursive(@import("nip06.zig"));
+    refAllDeclsRecursive(@import("nip10.zig"));
+    refAllDeclsRecursive(@import("nip18.zig"));
+    refAllDeclsRecursive(@import("nip49.zig"));
+    refAllDeclsRecursive(@import("nip57.zig"));
+    refAllDeclsRecursive(@import("nip59.zig"));
+    refAllDeclsRecursive(@import("nip86.zig"));
+    refAllDeclsRecursive(@import("dlc_oracle.zig"));
+    refAllDeclsRecursive(@import("clink.zig"));
+    refAllDeclsRecursive(@import("joinstr.zig"));
+    refAllDeclsRecursive(@import("custom_emoji.zig"));
+    refAllDeclsRecursive(@import("ws/ws.zig"));
+    refAllDeclsRecursive(@import("message_queue.zig"));
+    refAllDeclsRecursive(@import("pool.zig"));
+    refAllDeclsRecursive(@import("relay.zig"));
+    refAllDeclsRecursive(@import("signer.zig"));
+    refAllDeclsRecursive(@import("nip11.zig"));
+    refAllDeclsRecursive(@import("badges.zig"));
+    refAllDeclsRecursive(@import("zap_goal.zig"));
+    refAllDeclsRecursive(@import("file_metadata.zig"));
+    refAllDeclsRecursive(@import("classified_listing.zig"));
+    refAllDeclsRecursive(@import("nip04.zig"));
 }

@@ -713,10 +713,10 @@ pub const Pool = struct {
         try self.subscribe(sub_id, filters);
         defer self.unsubscribe(sub_id) catch {};
 
-        var events = std.ArrayList(Event).init(self.allocator);
+        var events: std.ArrayList(Event) = .empty;
         errdefer {
             for (events.items) |*e| e.deinit();
-            events.deinit();
+            events.deinit(self.allocator);
         }
 
         const timeout_ns = timeout_ms * std.time.ns_per_ms;
@@ -738,12 +738,12 @@ pub const Pool = struct {
             } else if (parsed.msg_type == .event) {
                 if (self.parseEventFromMessage(msg.data)) |event_data| {
                     const event = Event.parseWithAllocator(event_data, self.allocator) catch continue;
-                    try events.append(event);
+                    try events.append(self.allocator, event);
                 }
             }
         }
 
-        return events.toOwnedSlice();
+        return events.toOwnedSlice(self.allocator);
     }
 
     fn stopReceiving(self: *Pool) void {

@@ -376,7 +376,11 @@ pub const Relay = struct {
             }
 
             if (parsed.msg_type == .event and arr.len > 2) {
-                if (findEventJson(payload)) |event_json| {
+                // Parse out of raw_copy, not payload: the Event's string fields
+                // (raw_json, content) borrow their backing slice, and payload is
+                // freed by receive() before the RelayMessage is used. raw_copy is
+                // owned by the RelayMessage and lives until its deinit.
+                if (findEventJson(raw_copy)) |event_json| {
                     event_obj = Event.parseWithAllocator(event_json, self.allocator) catch null;
                 }
 
@@ -464,7 +468,7 @@ pub const Relay = struct {
         if (state != .connected) return;
 
         if (awaiting) {
-            const pong_timeout_sec = @as(i64, @intCast(config.pong_timeout_ms)) / 1000;
+            const pong_timeout_sec = @divTrunc(@as(i64, @intCast(config.pong_timeout_ms)), 1000);
             if (now - last_ping > pong_timeout_sec) {
                 self.mutex.lockUncancelable(@import("io.zig").io());
                 self.state = .disconnected;
@@ -480,7 +484,7 @@ pub const Relay = struct {
             }
         }
 
-        const ping_interval_sec = @as(i64, @intCast(config.ping_interval_ms)) / 1000;
+        const ping_interval_sec = @divTrunc(@as(i64, @intCast(config.ping_interval_ms)), 1000);
         if (now - last_msg > ping_interval_sec and !awaiting) {
             self.sendPing() catch {};
         }
