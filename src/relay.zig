@@ -289,6 +289,24 @@ pub const Relay = struct {
         }
     }
 
+    // NIP-42: send an AUTH event (a signed kind-22242 event) in response to the
+    // relay's AUTH challenge.
+    pub fn authenticate(self: *Self, event: *const Event) !void {
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
+
+        if (self.state != .connected) return RelayError.NotConnected;
+
+        var buf: [65536]u8 = undefined;
+        const msg = try messages.ClientMsg.authMsg(event, &buf);
+
+        if (self.client) |*c| {
+            c.sendText(msg) catch return RelayError.SendFailed;
+        } else {
+            return RelayError.NotConnected;
+        }
+    }
+
     // NIP-45: send a COUNT request. The reply arrives via receive() as a
     // RelayMessage with msg_type == .count and the total in the count field.
     pub fn count(self: *Self, sub_id: []const u8, filters: []const Filter) !void {
@@ -683,6 +701,13 @@ test "Relay operations when disconnected" {
     var filters = [_]Filter{.{}};
     try std.testing.expectError(RelayError.NotConnected, relay.subscribe("sub1", &filters));
     try std.testing.expectError(RelayError.NotConnected, relay.unsubscribe("sub1"));
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":22242,"created_at":1700000000,"content":"","tags":[]}
+    ;
+    var ev = try Event.parseWithAllocator(json, allocator);
+    defer ev.deinit();
+    try std.testing.expectError(RelayError.NotConnected, relay.authenticate(&ev));
 }
 
 test "Subscription struct" {

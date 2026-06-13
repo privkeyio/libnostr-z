@@ -400,6 +400,19 @@ pub const ClientMsg = struct {
         return fbs.buffered();
     }
 
+    // NIP-42: ["AUTH", <signed kind-22242 event>].
+    pub fn authMsg(ev: *const Event, buf: []u8) ![]u8 {
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
+
+        try writer.writeAll("[\"AUTH\",");
+        const event_json = try ev.serialize(buf[fbs.end..]);
+        fbs.end += event_json.len;
+        try writer.writeAll("]");
+
+        return fbs.buffered();
+    }
+
     pub fn reqMsg(sub_id: []const u8, filters: []const Filter, buf: []u8) ![]u8 {
         var fbs = std.Io.Writer.fixed(buf);
         const writer = &fbs;
@@ -1088,4 +1101,16 @@ test "countMsg builds a NIP-45 COUNT request" {
     const f = Filter{ .kinds_slice = &kinds };
     const msg = try ClientMsg.countMsg("s", &.{f}, &buf);
     try std.testing.expectEqualStrings("[\"COUNT\",\"s\",{\"kinds\":[1]}]", msg);
+}
+
+test "authMsg builds a NIP-42 AUTH request" {
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":22242,"created_at":1700000000,"content":"","tags":[["relay","wss://relay.example.com"],["challenge","challenge-string"]]}
+    ;
+    var event = try Event.parseWithAllocator(json, std.testing.allocator);
+    defer event.deinit();
+
+    var buf: [1024]u8 = undefined;
+    const msg = try ClientMsg.authMsg(&event, &buf);
+    try std.testing.expectEqualStrings("[\"AUTH\"," ++ json ++ "]", msg);
 }
