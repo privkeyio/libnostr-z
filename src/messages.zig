@@ -400,6 +400,19 @@ pub const ClientMsg = struct {
         return fbs.buffered();
     }
 
+    // NIP-42: ["AUTH", <signed kind-22242 event>].
+    pub fn authMsg(ev: *const Event, buf: []u8) ![]u8 {
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
+
+        try writer.writeAll("[\"AUTH\",");
+        const event_json = try ev.serialize(buf[fbs.end..]);
+        fbs.end += event_json.len;
+        try writer.writeAll("]");
+
+        return fbs.buffered();
+    }
+
     pub fn reqMsg(sub_id: []const u8, filters: []const Filter, buf: []u8) ![]u8 {
         var fbs = std.Io.Writer.fixed(buf);
         const writer = &fbs;
