@@ -85,6 +85,13 @@ pub const Client = struct {
         const tcp_stream = try host_name.connect(io_mod.io(), parsed.port, .{ .mode = .stream });
         errdefer tcp_stream.close(io_mod.io());
 
+        // Nostr is a small-message, request/response protocol. Without TCP_NODELAY,
+        // Nagle's algorithm holds a write (e.g. a REQ sent right after a CLOSE)
+        // until the prior segment is ACKed, colliding with the peer's delayed ACK
+        // for a ~40ms stall per round-trip. Disable it for low latency.
+        const one = std.mem.toBytes(@as(c_int, 1));
+        std.posix.setsockopt(tcp_stream.socket.handle, std.posix.IPPROTO.TCP, std.posix.TCP.NODELAY, &one) catch {};
+
         var ssl_stream: ?ssl.SslStream = null;
         if (parsed.is_tls) {
             ssl_stream = try ssl.SslStream.init(tcp_stream, parsed.host);
