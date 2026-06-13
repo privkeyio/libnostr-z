@@ -449,6 +449,57 @@ pub const ClientMsg = struct {
 
         return fbs.buffered();
     }
+
+    // NIP-77: ["NEG-OPEN", <sub_id>, <filter>, "<hex payload>"]. payload is the
+    // raw negentropy message bytes; it is hex-encoded here.
+    pub fn negOpenMsg(sub_id: []const u8, filter: *const Filter, payload: []const u8, buf: []u8) ![]u8 {
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
+
+        try writer.writeAll("[\"NEG-OPEN\",\"");
+        try writer.writeAll(sub_id);
+        try writer.writeAll("\",");
+
+        const filter_json = try filter.serialize(buf[fbs.end..]);
+        fbs.end += filter_json.len;
+
+        try writer.writeAll(",\"");
+        const hex_len = payload.len * 2;
+        if (fbs.end + hex_len + 2 > buf.len) return error.NoSpaceLeft;
+        hex.encode(payload, buf[fbs.end..][0..hex_len]);
+        fbs.end += hex_len;
+        try writer.writeAll("\"]");
+
+        return fbs.buffered();
+    }
+
+    // NIP-77: ["NEG-MSG", <sub_id>, "<hex payload>"].
+    pub fn negMsg(sub_id: []const u8, payload: []const u8, buf: []u8) ![]u8 {
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
+
+        try writer.writeAll("[\"NEG-MSG\",\"");
+        try writer.writeAll(sub_id);
+        try writer.writeAll("\",\"");
+
+        const hex_len = payload.len * 2;
+        if (fbs.end + hex_len + 2 > buf.len) return error.NoSpaceLeft;
+        hex.encode(payload, buf[fbs.end..][0..hex_len]);
+        fbs.end += hex_len;
+
+        try writer.writeAll("\"]");
+        return fbs.buffered();
+    }
+
+    // NIP-77: ["NEG-CLOSE", <sub_id>].
+    pub fn negCloseMsg(sub_id: []const u8, buf: []u8) ![]u8 {
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
+        try writer.writeAll("[\"NEG-CLOSE\",\"");
+        try writer.writeAll(sub_id);
+        try writer.writeAll("\"]");
+        return fbs.buffered();
+    }
 };
 
 pub const RelayMsgType = enum {
