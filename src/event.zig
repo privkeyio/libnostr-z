@@ -61,6 +61,7 @@ pub const Event = struct {
     created_at_val: i64,
     kind_val: i32,
     raw_json: []const u8,
+    owns_raw_json: bool = false,
 
     d_tag_val: ?[]const u8 = null,
     expiration_val: ?i64 = null,
@@ -72,6 +73,14 @@ pub const Event = struct {
 
     pub fn parse(json: []const u8) Error!Event {
         return parseWithAllocator(json, std.heap.page_allocator);
+    }
+
+    pub fn parseWithAllocatorOwned(json: []const u8, allocator: std.mem.Allocator) !Event {
+        const owned = try allocator.dupe(u8, json);
+        errdefer allocator.free(owned);
+        var event = try parseWithAllocator(owned, allocator);
+        event.owns_raw_json = true;
+        return event;
     }
 
     pub fn parseWithAllocator(json: []const u8, allocator: std.mem.Allocator) Error!Event {
@@ -240,6 +249,7 @@ pub const Event = struct {
     pub fn deinit(self: *Event) void {
         self.e_tags.deinit(self.allocator);
         self.tags.deinit();
+        if (self.owns_raw_json) self.allocator.free(self.raw_json);
     }
 };
 
