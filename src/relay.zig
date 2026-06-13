@@ -289,6 +289,24 @@ pub const Relay = struct {
         }
     }
 
+    // NIP-45: send a COUNT request. The reply arrives via receive() as a
+    // RelayMessage with msg_type == .count and the total in the count field.
+    pub fn count(self: *Self, sub_id: []const u8, filters: []const Filter) !void {
+        self.mutex.lockUncancelable(@import("io.zig").io());
+        defer self.mutex.unlock(@import("io.zig").io());
+
+        if (self.state != .connected) return RelayError.NotConnected;
+
+        var buf: [8192]u8 = undefined;
+        const msg = try messages.ClientMsg.countMsg(sub_id, filters, &buf);
+
+        if (self.client) |*c| {
+            c.sendText(msg) catch return RelayError.SendFailed;
+        } else {
+            return RelayError.NotConnected;
+        }
+    }
+
     pub fn receive(self: *Self) !?RelayMessage {
         self.mutex.lockUncancelable(@import("io.zig").io());
         if (self.state != .connected) {

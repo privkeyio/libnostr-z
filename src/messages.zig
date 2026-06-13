@@ -419,6 +419,26 @@ pub const ClientMsg = struct {
         return fbs.buffered();
     }
 
+    // NIP-45: ["COUNT", <sub_id>, <filter>...]. Same shape as REQ.
+    pub fn countMsg(sub_id: []const u8, filters: []const Filter, buf: []u8) ![]u8 {
+        var fbs = std.Io.Writer.fixed(buf);
+        const writer = &fbs;
+
+        try writer.writeAll("[\"COUNT\",\"");
+        try writer.writeAll(sub_id);
+        try writer.writeByte('"');
+
+        for (filters) |filter| {
+            try writer.writeByte(',');
+            const filter_json = try filter.serialize(buf[fbs.end..]);
+            fbs.end += filter_json.len;
+        }
+
+        try writer.writeAll("]");
+
+        return fbs.buffered();
+    }
+
     pub fn closeMsg(sub_id: []const u8, buf: []u8) ![]u8 {
         var fbs = std.Io.Writer.fixed(buf);
         const writer = &fbs;
@@ -1007,4 +1027,12 @@ test "ClientMsg.getFilters parses multiple filters" {
     try std.testing.expectEqual(@as(i32, 10), filters[0].limit_val);
     try std.testing.expectEqual(@as(i32, 7), filters[1].kinds_slice.?[0]);
     try std.testing.expectEqual(@as(i64, 1700000000), filters[1].since_val);
+}
+
+test "countMsg builds a NIP-45 COUNT request" {
+    var buf: [256]u8 = undefined;
+    const kinds = [_]i32{1};
+    const f = Filter{ .kinds_slice = &kinds };
+    const msg = try ClientMsg.countMsg("s", &.{f}, &buf);
+    try std.testing.expectEqualStrings("[\"COUNT\",\"s\",{\"kinds\":[1]}]", msg);
 }
