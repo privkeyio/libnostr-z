@@ -439,15 +439,28 @@ pub const ClientMsg = struct {
         return fbs.buffered();
     }
 
-    pub fn closeMsg(sub_id: []const u8, buf: []u8) ![]u8 {
+    fn singleArgMsg(verb: []const u8, sub_id: []const u8, buf: []u8) ![]u8 {
         var fbs = std.Io.Writer.fixed(buf);
         const writer = &fbs;
 
-        try writer.writeAll("[\"CLOSE\",\"");
+        try writer.writeAll("[\"");
+        try writer.writeAll(verb);
+        try writer.writeAll("\",\"");
         try writer.writeAll(sub_id);
         try writer.writeAll("\"]");
 
         return fbs.buffered();
+    }
+
+    fn writeHexPayload(fbs: *std.Io.Writer, buf: []u8, payload: []const u8) !void {
+        const hex_len = payload.len * 2;
+        if (fbs.end + hex_len + 2 > buf.len) return error.NoSpaceLeft;
+        hex.encode(payload, buf[fbs.end..][0..hex_len]);
+        fbs.end += hex_len;
+    }
+
+    pub fn closeMsg(sub_id: []const u8, buf: []u8) ![]u8 {
+        return singleArgMsg("CLOSE", sub_id, buf);
     }
 
     // NIP-77: ["NEG-OPEN", <sub_id>, <filter>, "<hex payload>"]. payload is the
@@ -464,10 +477,7 @@ pub const ClientMsg = struct {
         fbs.end += filter_json.len;
 
         try writer.writeAll(",\"");
-        const hex_len = payload.len * 2;
-        if (fbs.end + hex_len + 2 > buf.len) return error.NoSpaceLeft;
-        hex.encode(payload, buf[fbs.end..][0..hex_len]);
-        fbs.end += hex_len;
+        try writeHexPayload(&fbs, buf, payload);
         try writer.writeAll("\"]");
 
         return fbs.buffered();
@@ -482,10 +492,7 @@ pub const ClientMsg = struct {
         try writer.writeAll(sub_id);
         try writer.writeAll("\",\"");
 
-        const hex_len = payload.len * 2;
-        if (fbs.end + hex_len + 2 > buf.len) return error.NoSpaceLeft;
-        hex.encode(payload, buf[fbs.end..][0..hex_len]);
-        fbs.end += hex_len;
+        try writeHexPayload(&fbs, buf, payload);
 
         try writer.writeAll("\"]");
         return fbs.buffered();
@@ -493,12 +500,7 @@ pub const ClientMsg = struct {
 
     // NIP-77: ["NEG-CLOSE", <sub_id>].
     pub fn negCloseMsg(sub_id: []const u8, buf: []u8) ![]u8 {
-        var fbs = std.Io.Writer.fixed(buf);
-        const writer = &fbs;
-        try writer.writeAll("[\"NEG-CLOSE\",\"");
-        try writer.writeAll(sub_id);
-        try writer.writeAll("\"]");
-        return fbs.buffered();
+        return singleArgMsg("NEG-CLOSE", sub_id, buf);
     }
 };
 

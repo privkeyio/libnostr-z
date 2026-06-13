@@ -5,12 +5,13 @@ const ws = @import("ws/ws.zig");
 const negentropy = @import("negentropy.zig");
 const messages = @import("messages.zig");
 const Filter = @import("filter.zig").Filter;
-const hex = @import("hex.zig");
 
 const SUB_ID = "noz-sync";
 const FRAME_LIMIT: u64 = 60000;
 const BUF = 131072;
 const FETCH_BATCH = 200;
+const MAX_ROUNDS = 1024;
+const MAX_NEED = 500_000;
 
 pub const SyncError = error{NegProtocolError};
 
@@ -46,7 +47,11 @@ pub fn syncRelays(
     var need: std.ArrayListUnmanaged([32]u8) = .empty;
     defer need.deinit(allocator);
 
+    var rounds: usize = 0;
     while (true) {
+        rounds += 1;
+        if (rounds > MAX_ROUNDS) return SyncError.NegProtocolError;
+
         var msg = try src.recvMessage();
         defer msg.deinit();
 
@@ -54,16 +59,17 @@ pub fn syncRelays(
         if (std.mem.eql(u8, verb, "NEG-ERR")) return SyncError.NegProtocolError;
         if (!std.mem.eql(u8, verb, "NEG-MSG")) continue;
 
-        const neg_hex = nthQuoted(msg.payload, 3) orelse continue;
-        const qlen = neg_hex.len / 2;
-        if (qlen > query_buf.len) return SyncError.NegProtocolError;
-        hex.decode(neg_hex, query_buf[0..qlen]) catch return SyncError.NegProtocolError;
+        var cm = messages.ClientMsg.parseWithAllocator(msg.payload, allocator) catch return SyncError.NegProtocolError;
+        defer cm.deinit();
+        if (cm.msg_type != .neg_msg) continue;
+        const query = cm.getNegPayload(&query_buf) catch return SyncError.NegProtocolError;
 
-        var result = try neg.reconcile(query_buf[0..qlen], &out_buf, allocator);
+        var result = try neg.reconcile(query, &out_buf, allocator);
         defer result.deinit();
         try need.appendSlice(allocator, result.need_ids.items);
+        if (need.items.len > MAX_NEED) return SyncError.NegProtocolError;
 
-        if (result.done or result.output.len == 0) break;
+        if (result.done) break;
         try src.sendText(try messages.ClientMsg.negMsg(SUB_ID, result.output, &work));
     }
 
@@ -85,12 +91,10 @@ pub fn syncRelays(
         var pbuf: [BUF]u8 = undefined;
         const m = std.fmt.bufPrint(&pbuf, "[\"EVENT\",{s}]", .{ev}) catch continue;
         dst.sendText(m) catch continue;
-        var ok = dst.recvMessage() catch {
-            published += 1;
-            continue;
-        };
-        ok.deinit();
-        published += 1;
+        var ok = dst.recvMessage() catch continue;
+        defer ok.deinit();
+        const parsed = messages.RelayMsgParsed.parse(ok.payload, allocator) catch continue;
+        if (parsed.msg_type == .ok and parsed.success) published += 1;
     }
     return published;
 }
@@ -110,37 +114,36 @@ fn fetchByIds(
         const f = Filter{ .allocator = allocator, .ids_bytes = batch };
         try src.sendText(try messages.ClientMsg.reqMsg("noz-fetch", &.{f}, &req_buf));
 
+        var frames: usize = 0;
         while (true) {
+            frames += 1;
+            if (frames > FETCH_BATCH * 4) return SyncError.NegProtocolError;
             var msg = try src.recvMessage();
             defer msg.deinit();
             const verb = firstQuoted(msg.payload) orelse continue;
             if (std.mem.eql(u8, verb, "EVENT")) {
-                if (eventObject(msg.payload)) |obj| {
-                    try out.append(allocator, try allocator.dupe(u8, obj));
+                if (out.items.len < ids.len) {
+                    if (eventObject(msg.payload)) |obj| {
+                        try out.append(allocator, try allocator.dupe(u8, obj));
+                    }
                 }
             } else if (std.mem.eql(u8, verb, "EOSE") or std.mem.eql(u8, verb, "CLOSED")) {
                 break;
             }
         }
+
+        if (messages.ClientMsg.closeMsg("noz-fetch", &req_buf)) |close| {
+            src.sendText(close) catch {};
+        } else |_| {}
     }
 }
 
 // The first quoted string in a relay message array, i.e. the verb. Negentropy
 // payloads and sub ids contain no escaped quotes, so a plain scan is enough.
 fn firstQuoted(s: []const u8) ?[]const u8 {
-    return nthQuoted(s, 1);
-}
-
-fn nthQuoted(s: []const u8, n: usize) ?[]const u8 {
-    var pos: usize = 0;
-    var count: usize = 0;
-    while (true) {
-        const a = std.mem.indexOfScalarPos(u8, s, pos, '"') orelse return null;
-        const b = std.mem.indexOfScalarPos(u8, s, a + 1, '"') orelse return null;
-        count += 1;
-        if (count == n) return s[a + 1 .. b];
-        pos = b + 1;
-    }
+    const open = std.mem.indexOfScalar(u8, s, '"') orelse return null;
+    const close = std.mem.indexOfScalarPos(u8, s, open + 1, '"') orelse return null;
+    return s[open + 1 .. close];
 }
 
 // The event object out of ["EVENT","sub",{...}]: the outermost {...}, so first
@@ -152,10 +155,9 @@ fn eventObject(s: []const u8) ?[]const u8 {
     return s[start .. stop + 1];
 }
 
-test nthQuoted {
+test firstQuoted {
     const m = "[\"NEG-MSG\",\"sub\",\"61abcd\"]";
     try std.testing.expectEqualStrings("NEG-MSG", firstQuoted(m).?);
-    try std.testing.expectEqualStrings("61abcd", nthQuoted(m, 3).?);
 }
 
 test eventObject {
