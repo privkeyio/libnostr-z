@@ -64,6 +64,10 @@ pub const Client = struct {
 
     const Self = @This();
 
+    /// Upper bound on a single inbound frame's payload. Guards against a hostile
+    /// relay advertising a multi-gigabyte length and forcing an OOM allocation.
+    const max_payload_len = 16 * 1024 * 1024;
+
     pub fn setReadTimeout(self: *Self, timeout_ms: u32) void {
         const seconds = timeout_ms / 1000;
         const microseconds = (timeout_ms % 1000) * 1000;
@@ -182,50 +186,82 @@ pub const Client = struct {
         try self.writeAll(send_buf);
     }
 
+    /// Reads exactly buf.len bytes, looping over short reads. A peer closing
+    /// mid-read surfaces as ConnectionResetByPeer.
+    fn readExact(self: *Self, buf: []u8) !void {
+        var total: usize = 0;
+        while (total < buf.len) {
+            const n = try self.read(buf[total..]);
+            if (n == 0) return error.ConnectionResetByPeer;
+            total += n;
+        }
+    }
+
     pub fn recvMessage(self: *Self) !Message {
         const Frame = @import("frame.zig").Frame;
 
-        var recv_buf: [65536]u8 = undefined;
-        var recv_len: usize = 0;
-
+        // Read one frame at a time off the stream. Reading exactly the bytes a
+        // frame needs (header, then extended length, then mask, then payload)
+        // avoids over-reading into a following frame and dropping it, which a
+        // single bulk read into a per-call buffer would do whenever a relay
+        // sends frames back-to-back (e.g. a batch of EVENTs ending in EOSE).
         while (true) {
-            const n = try self.read(recv_buf[recv_len..]);
-            if (n == 0) return error.ConnectionResetByPeer;
-            recv_len += n;
+            var header: [2]u8 = undefined;
+            try self.readExact(&header);
 
-            while (recv_len > 0) {
-                const frame, const frame_len = Frame.parse(recv_buf[0..recv_len]) catch |err| switch (err) {
-                    error.SplitBuffer => break,
-                    else => return err,
-                };
+            if (header[0] & 0b0011_0000 != 0) return error.ReservedRsv;
 
-                defer {
-                    if (frame_len < recv_len) {
-                        std.mem.copyForwards(u8, recv_buf[0 .. recv_len - frame_len], recv_buf[frame_len..recv_len]);
-                    }
-                    recv_len -= frame_len;
-                }
+            const opcode = try Frame.Opcode.decode(@intCast(header[0] & 0x0f));
+            const masked = (header[1] & 0x80) != 0;
 
-                if (frame.opcode == .ping) {
-                    try self.sendPong(frame.payload);
-                    continue;
-                }
-
-                if (frame.opcode == .close) {
-                    try self.sendClose(frame.closeCode(), frame.closePayload());
-                    return error.EndOfStream;
-                }
-
-                if (frame.opcode == .pong) {
-                    continue;
-                }
-
-                return Message{
-                    .encoding = Message.Encoding.from(frame.opcode),
-                    .payload = try self.allocator.dupe(u8, frame.payload),
-                    .allocator = self.allocator,
-                };
+            var payload_len: u64 = header[1] & 0x7f;
+            if (payload_len == 126) {
+                var ext: [2]u8 = undefined;
+                try self.readExact(&ext);
+                payload_len = std.mem.readInt(u16, &ext, .big);
+            } else if (payload_len == 127) {
+                var ext: [8]u8 = undefined;
+                try self.readExact(&ext);
+                payload_len = std.mem.readInt(u64, &ext, .big);
             }
+
+            var mask_key: [4]u8 = undefined;
+            if (masked) try self.readExact(&mask_key);
+
+            if (opcode.isControl()) {
+                if (payload_len > 125) return error.TooBigPayloadForControlFrame;
+                var ctrl_buf: [125]u8 = undefined;
+                const ctrl = ctrl_buf[0..@intCast(payload_len)];
+                try self.readExact(ctrl);
+                if (masked) Frame.maskUnmask(&mask_key, ctrl);
+
+                switch (opcode) {
+                    .ping => {
+                        try self.sendPong(ctrl);
+                        continue;
+                    },
+                    .close => {
+                        const code: u16 = if (ctrl.len >= 2) std.mem.readInt(u16, ctrl[0..2], .big) else 1000;
+                        const reason = if (ctrl.len > 2) ctrl[2..] else ctrl[0..0];
+                        try self.sendClose(code, reason);
+                        return error.EndOfStream;
+                    },
+                    .pong => continue,
+                    else => unreachable,
+                }
+            }
+
+            if (payload_len > max_payload_len) return error.MessageTooBig;
+            const payload = try self.allocator.alloc(u8, @intCast(payload_len));
+            errdefer self.allocator.free(payload);
+            try self.readExact(payload);
+            if (masked) Frame.maskUnmask(&mask_key, payload);
+
+            return Message{
+                .encoding = Message.Encoding.from(opcode),
+                .payload = payload,
+                .allocator = self.allocator,
+            };
         }
     }
 
