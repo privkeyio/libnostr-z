@@ -326,7 +326,7 @@ pub const Relay = struct {
         self.awaiting_pong = false;
         self.mutex.unlock(@import("io.zig").io());
 
-        return self.parseRelayMessage(ws_msg.payload);
+        return try self.parseRelayMessage(ws_msg.payload);
     }
 
     fn parseRelayMessage(self: *Self, payload: []const u8) !RelayMessage {
