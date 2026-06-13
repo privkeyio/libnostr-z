@@ -64,6 +64,10 @@ pub const Client = struct {
 
     const Self = @This();
 
+    /// Upper bound on a single inbound frame's payload. Guards against a hostile
+    /// relay advertising a multi-gigabyte length and forcing an OOM allocation.
+    const max_payload_len = 16 * 1024 * 1024;
+
     pub fn setReadTimeout(self: *Self, timeout_ms: u32) void {
         const seconds = timeout_ms / 1000;
         const microseconds = (timeout_ms % 1000) * 1000;
@@ -205,6 +209,8 @@ pub const Client = struct {
             var header: [2]u8 = undefined;
             try self.readExact(&header);
 
+            if (header[0] & 0b0011_0000 != 0) return error.ReservedRsv;
+
             const opcode = try Frame.Opcode.decode(@intCast(header[0] & 0x0f));
             const masked = (header[1] & 0x80) != 0;
 
@@ -245,6 +251,7 @@ pub const Client = struct {
                 }
             }
 
+            if (payload_len > max_payload_len) return error.MessageTooBig;
             const payload = try self.allocator.alloc(u8, @intCast(payload_len));
             errdefer self.allocator.free(payload);
             try self.readExact(payload);
