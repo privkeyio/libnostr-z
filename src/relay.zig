@@ -701,6 +701,13 @@ test "Relay operations when disconnected" {
     var filters = [_]Filter{.{}};
     try std.testing.expectError(RelayError.NotConnected, relay.subscribe("sub1", &filters));
     try std.testing.expectError(RelayError.NotConnected, relay.unsubscribe("sub1"));
+
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":22242,"created_at":1700000000,"content":"","tags":[]}
+    ;
+    var ev = try Event.parseWithAllocator(json, allocator);
+    defer ev.deinit();
+    try std.testing.expectError(RelayError.NotConnected, relay.authenticate(&ev));
 }
 
 test "Subscription struct" {

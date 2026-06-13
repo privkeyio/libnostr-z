@@ -1102,3 +1102,15 @@ test "countMsg builds a NIP-45 COUNT request" {
     const msg = try ClientMsg.countMsg("s", &.{f}, &buf);
     try std.testing.expectEqualStrings("[\"COUNT\",\"s\",{\"kinds\":[1]}]", msg);
 }
+
+test "authMsg builds a NIP-42 AUTH request" {
+    const json =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":22242,"created_at":1700000000,"content":"","tags":[["relay","wss://relay.example.com"],["challenge","challenge-string"]]}
+    ;
+    var event = try Event.parseWithAllocator(json, std.testing.allocator);
+    defer event.deinit();
+
+    var buf: [1024]u8 = undefined;
+    const msg = try ClientMsg.authMsg(&event, &buf);
+    try std.testing.expectEqualStrings("[\"AUTH\"," ++ json ++ "]", msg);
+}
