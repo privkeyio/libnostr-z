@@ -331,10 +331,15 @@ pub const Relay = struct {
             self.mutex.unlock(@import("io.zig").io());
             return RelayError.NotConnected;
         }
-        var client = self.client orelse {
+        if (self.client == null) {
             self.mutex.unlock(@import("io.zig").io());
             return RelayError.NotConnected;
-        };
+        }
+        // Operate on the stored client by pointer, not a copy: recvMessage advances
+        // per-connection read state (the post-handshake overflow buffer) that must
+        // persist across receive() calls. A copy would discard it and re-serve the
+        // buffered first frame on every call. (The send paths already use `|*c|`.)
+        const client = &self.client.?;
         self.mutex.unlock(@import("io.zig").io());
 
         const ws_msg = client.recvMessage() catch |err| {
