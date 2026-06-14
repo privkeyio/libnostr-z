@@ -61,6 +61,13 @@ pub const Client = struct {
     ws_options: Options,
     is_tls: bool,
     uri: []const u8,
+    /// Bytes read past the HTTP 101 upgrade response. A relay may send its first
+    /// frame (e.g. a NIP-42 AUTH challenge) in the same TCP segment as the upgrade
+    /// response; without preserving this tail the frame is silently dropped and a
+    /// publish that depends on it hangs until the read timeout. Drained before the
+    /// socket on the next read.
+    overflow: []u8 = &.{},
+    overflow_pos: usize = 0,
 
     const Self = @This();
 
@@ -114,6 +121,11 @@ pub const Client = struct {
     }
 
     fn closeResources(self: *Self) void {
+        if (self.overflow.len > 0) {
+            self.allocator.free(self.overflow);
+            self.overflow = &.{};
+            self.overflow_pos = 0;
+        }
         if (self.ssl_stream) |*s| {
             s.close();
         } else {
@@ -136,13 +148,17 @@ pub const Client = struct {
             if (n == 0) return error.ConnectionResetByPeer;
             response_len += n;
 
-            const rsp, _ = handshake.Rsp.parse(response_buf[0..response_len]) catch |err| switch (err) {
+            const rsp, const head_end = handshake.Rsp.parse(response_buf[0..response_len]) catch |err| switch (err) {
                 error.SplitBuffer => continue,
                 else => return err,
             };
 
             try rsp.validate(&sec_key);
             self.ws_options = rsp.options;
+            // Preserve any frame bytes that arrived bundled with the 101 response.
+            if (response_len > head_end) {
+                self.overflow = try self.allocator.dupe(u8, response_buf[head_end..response_len]);
+            }
             return;
         }
 
@@ -197,6 +213,18 @@ pub const Client = struct {
     /// mid-read surfaces as ConnectionResetByPeer.
     fn readExact(self: *Self, buf: []u8) !void {
         var total: usize = 0;
+        // Drain bytes captured past the handshake response before reading the socket.
+        if (self.overflow_pos < self.overflow.len) {
+            const take = @min(self.overflow.len - self.overflow_pos, buf.len);
+            @memcpy(buf[0..take], self.overflow[self.overflow_pos .. self.overflow_pos + take]);
+            self.overflow_pos += take;
+            total = take;
+            if (self.overflow_pos == self.overflow.len) {
+                self.allocator.free(self.overflow);
+                self.overflow = &.{};
+                self.overflow_pos = 0;
+            }
+        }
         while (total < buf.len) {
             const n = try self.read(buf[total..]);
             if (n == 0) return error.ConnectionResetByPeer;
