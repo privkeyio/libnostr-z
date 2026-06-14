@@ -120,6 +120,7 @@ _ = try pool.connectAll();
 
 - [wisp](https://github.com/privkeyio/wisp) - Fast, lightweight nostr relay
 - [nostr-bench](https://github.com/privkeyio/nostr-bench) - Nostr relay benchmark tool
+- [noz](https://github.com/privkeyio/noz) - Small, fast Nostr command-line tool
 - [puck](https://github.com/privkeyio/puck) - NIP-47 Wallet Connect server with LNbits backend
 
 ## License
