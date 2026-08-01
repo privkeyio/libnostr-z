@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Zig dependencies in build.zig.zon have no Dependabot ecosystem. They are
+  # pinned by URL and content hash, and tracked by scripts/check-zon-pins.py.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      all:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
