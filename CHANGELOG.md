@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-08-11
+
+### Fixed
+
+- Loading records into a negentropy `VectorStorage` is now linear rather than quadratic. Each `insert` placed the record at its sorted position, moving every element after it, so a caller adding in descending order put every record at index 0 and shifted the whole array. Records are appended and the collection is sorted lazily instead. The ordering contract is unchanged: NIP-77 order is restored on any read, so callers that never call `seal()` are unaffected, and `seal()` still works and is idempotent (#138)
+
+## [Unreleased before 0.2.0]
+
+_Note: this section predates the 0.2.x and 0.3.x releases and was never moved under a version heading. Its contents shipped in those releases; the exact mapping was not recorded at the time._
+
 ### Added
 
 - NIP-28 public chat support
