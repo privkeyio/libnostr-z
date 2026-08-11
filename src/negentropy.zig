@@ -159,6 +159,9 @@ pub const Storage = struct {
 pub const VectorStorage = struct {
     items: std.ArrayListUnmanaged(Item),
     allocator: std.mem.Allocator,
+    /// Set when an appended item may be out of order. Reads sort before they
+    /// look, so callers never observe an unsorted collection.
+    unsorted: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) VectorStorage {
         return .{ .items = .empty, .allocator = allocator };
@@ -168,14 +171,37 @@ pub const VectorStorage = struct {
         self.items.deinit(self.allocator);
     }
 
+    /// Add a record. Ordering is restored lazily, so a caller that inserts and
+    /// then reads still sees NIP-77 order whether or not it calls seal().
     pub fn insert(self: *VectorStorage, timestamp: u64, id: *const [ID_SIZE]u8) !void {
         const item = Item.init(timestamp, id);
-        const idx = std.sort.lowerBound(Item, self.items.items, item, Item.compareForLowerBound);
-        try self.items.insert(self.allocator, idx, item);
+        // Appending rather than inserting in place. A sorted insert moves every
+        // element after the insertion point, which is O(n) per record, and a
+        // caller adding in descending order -- a relay walking a
+        // newest-first index, for example -- puts each record at index 0 and
+        // shifts the whole array every time, so loading n records costs O(n^2).
+        // One sort at the end is O(n log n) for any insertion order.
+        try self.items.append(self.allocator, item);
+        // Appending in order is the common case and stays sorted, so only mark
+        // the collection dirty when this record actually breaks the ordering.
+        if (!self.unsorted and self.items.items.len > 1) {
+            const prev = self.items.items[self.items.items.len - 2];
+            if (Item.order(prev, item) == .gt) self.unsorted = true;
+        }
     }
 
+    /// Restore NIP-77 order: timestamp ascending, then ID lexically ascending.
+    /// Idempotent, and no longer required for correctness, since every read
+    /// path sorts first if needed. Kept because callers use it to pay the cost
+    /// once at a point of their choosing rather than on the first read.
     pub fn seal(self: *VectorStorage) void {
+        self.sortIfNeeded();
+    }
+
+    fn sortIfNeeded(self: *VectorStorage) void {
+        if (!self.unsorted) return;
         std.mem.sort(Item, self.items.items, {}, Item.lessThan);
+        self.unsorted = false;
     }
 
     pub fn storage(self: *VectorStorage) Storage {
@@ -190,20 +216,24 @@ pub const VectorStorage = struct {
     };
 
     fn size_(self: *VectorStorage) usize {
+        self.sortIfNeeded();
         return self.items.items.len;
     }
 
     fn getItem_(self: *VectorStorage, i: usize) Item {
+        self.sortIfNeeded();
         return self.items.items[i];
     }
 
     fn fingerprint_(self: *VectorStorage, begin: usize, end: usize) Fingerprint {
+        self.sortIfNeeded();
         var acc = Accumulator{};
         for (self.items.items[begin..end]) |*item| acc.addItem(item);
         return acc.getFingerprint(end - begin);
     }
 
     fn findLowerBound_(self: *VectorStorage, begin: usize, end: usize, bound: Bound) usize {
+        self.sortIfNeeded();
         const items = self.items.items[begin..end];
         const idx = std.sort.lowerBound(Item, items, bound.item, Item.compareForLowerBound);
         return begin + idx;
@@ -560,6 +590,76 @@ test "vector storage" {
 
     const item1 = s.getItem(1);
     try std.testing.expectEqual(@as(u64, 200), item1.timestamp);
+}
+
+test "vector storage sorts records inserted in descending order" {
+    // NIP-77 requires items ordered by timestamp ascending, then ID lexically
+    // ascending. A relay enumerating a newest-first index inserts in exactly the
+    // opposite order, which is the case that used to cost an O(n) memmove per
+    // record. Reads must still see spec order.
+    var storage = VectorStorage.init(std.testing.allocator);
+    defer storage.deinit();
+
+    var i: u8 = 10;
+    while (i > 0) : (i -= 1) {
+        var id: [ID_SIZE]u8 = undefined;
+        @memset(&id, i);
+        try storage.insert(@as(u64, i) * 100, &id);
+    }
+
+    // Read without sealing: ordering is a property of the collection, not
+    // something the caller has to remember to ask for.
+    const s = storage.storage();
+    try std.testing.expectEqual(@as(usize, 10), s.size());
+
+    var prev: u64 = 0;
+    var n: usize = 0;
+    while (n < s.size()) : (n += 1) {
+        const item = s.getItem(n);
+        try std.testing.expect(item.timestamp >= prev);
+        prev = item.timestamp;
+    }
+    try std.testing.expectEqual(@as(u64, 100), s.getItem(0).timestamp);
+    try std.testing.expectEqual(@as(u64, 1000), s.getItem(9).timestamp);
+}
+
+test "vector storage breaks equal timestamps by ID, ascending" {
+    // The second half of the NIP-77 ordering rule, and the part a plain
+    // timestamp sort would get wrong.
+    var storage = VectorStorage.init(std.testing.allocator);
+    defer storage.deinit();
+
+    var high: [ID_SIZE]u8 = undefined;
+    @memset(&high, 0xee);
+    var low: [ID_SIZE]u8 = undefined;
+    @memset(&low, 0x11);
+
+    // Inserted worst-first so a stable no-op would leave them reversed.
+    try storage.insert(500, &high);
+    try storage.insert(500, &low);
+
+    const s = storage.storage();
+    try std.testing.expectEqual(@as(u8, 0x11), s.getItem(0).id[0]);
+    try std.testing.expectEqual(@as(u8, 0xee), s.getItem(1).id[0]);
+}
+
+test "vector storage seal is idempotent and optional" {
+    var storage = VectorStorage.init(std.testing.allocator);
+    defer storage.deinit();
+
+    var a: [ID_SIZE]u8 = undefined;
+    @memset(&a, 0x03);
+    var b: [ID_SIZE]u8 = undefined;
+    @memset(&b, 0x01);
+    try storage.insert(300, &a);
+    try storage.insert(100, &b);
+
+    storage.seal();
+    storage.seal();
+
+    const s = storage.storage();
+    try std.testing.expectEqual(@as(u64, 100), s.getItem(0).timestamp);
+    try std.testing.expectEqual(@as(u64, 300), s.getItem(1).timestamp);
 }
 
 test "basic reconciliation" {
