@@ -37,7 +37,9 @@ pub const OffersResponse = struct {
     preimage: ?[]const u8 = null,
 
     pub fn parse(json: []const u8) ?OffersResponse {
-        if (utils.extractJsonString(json, "error") != null) return null;
+        var at: [3]?usize = undefined;
+        if (!utils.findTopLevelFields(json, &.{ "error", "bolt11", "preimage" }, &at)) return null;
+        if (at[0]) |start| if (!std.mem.eql(u8, json[start..utils.skipJsonValue(json, start).?], "null")) return null;
         return .{
             .bolt11 = utils.extractJsonString(json, "bolt11"),
             .preimage = utils.extractJsonString(json, "preimage"),
@@ -559,4 +561,19 @@ test "Frequency parse" {
     try std.testing.expectEqual(@as(u32, 2), freq.number);
     try std.testing.expectEqual(Frequency.Unit.week, freq.unit);
     try std.testing.expectEqualStrings("week", freq.unit.toString());
+}
+
+test "OffersResponse parse rejects errors, duplicate keys and malformed objects" {
+    const ok = OffersResponse.parse("{\"bolt11\":\"lnbc1\",\"error\":null}").?;
+    try std.testing.expectEqualStrings("lnbc1", ok.bolt11.?);
+
+    const bad = [_][]const u8{
+        "{\"error\":\"Invalid Offer\",\"error\":null,\"bolt11\":\"lnbc1\"}",
+        "{\"error\":{\"code\":1},\"bolt11\":\"lnbc1\"}",
+        "{\"res\":\"GFY\",\"error\":\"Invalid Offer\"}",
+        "{\"bolt11\":\"lnbc1\",\"bolt11\":\"lnbc2\"}",
+        "{\"bolt11\":\"lnbc1\",\"error\":\"x\"",
+        "{\"bolt11\":\"lnbc1\",\"error\":nullx}",
+    };
+    for (bad) |json| try std.testing.expect(OffersResponse.parse(json) == null);
 }

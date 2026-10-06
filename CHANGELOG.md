@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** NIP-17 `ReceiverIterator` and `RelayIterator` and NIP-28 `ETagIterator` hold a `TagIterator` (`tags`) instead of `json`/`pos`. NIP-57 `ValidationError` gains `InvalidTags`, and `validateServer` returns it for missing or malformed tags (missing tags used to pass). NIP-17 hex tag values must be exactly 64 characters (the first 64 of a longer value were accepted), and `RelayIterator` skips an empty relay value instead of stopping.
+
+### Security
+
+- Client-side tag readers in NIP-17 (`parseGiftWrapRecipient`, `parseReplyTo`, `parseSubject`, `parseFileMetadata`, `ReceiverIterator`, `RelayIterator`), NIP-28 (`ETagIterator`, `parseMutedPubkey` and the channel/reply/hidden reference helpers) and NIP-57 (zap receipt `description`, zap split relay and weight) now read only the event's top-level `tags` member instead of searching the whole JSON, so a decoy member added to a validly signed event can no longer substitute the recipient, reply target, relay list, zap request description or split destination. These readers, `ZapRequest.fromEvent`, `ZapReceipt.fromEvent`, `ZapRequest.validateServer` (new `InvalidTags` error) and `parseZapSplits` also reject events whose tags are malformed. NWC `Response.parseJson` and CLINK `OffersResponse.parse` reject responses that are malformed or repeat `error`, `result`, `result_type`, `bolt11` or `preimage`, which were previously read as successful, and `OffersResponse.parse` treats any non-null `error` as a failure. `utils.findStringEnd` now scans byte-wise like `skipJsonValue` instead of skipping over a closing quote after a non-ASCII byte, and `TagIterator` gains `initStrict` and a `Tag.raw` field for reading tag elements past the second.
+- NIP-57 zap requests with more than one `amount` tag, or one that is not plain digits, are rejected rather than skipping the amount check. `validateServer` rejects an escaped tag name or a `p`, `P` or `e` value that is not 64 hex characters, since those were counted differently than by a client that decodes them. Zap receipts that repeat `bolt11`, `description`, `preimage` or `P` are rejected, since clients disagree on which copy wins.
+
 ## [0.4.0] - 2026-10-05
 
 Fixes a NIP-42 / NIP-98 authentication bypass and several ways a remote peer could crash or hang a relay, and makes `limit: 0` distinguishable as NIP-01 now requires. `Filter.limit()` changes type, so this is a minor version bump.

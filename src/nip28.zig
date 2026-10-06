@@ -79,76 +79,36 @@ pub fn parseHiddenEventId(event_json: []const u8) ?[32]u8 {
 }
 
 pub fn parseMutedPubkey(event_json: []const u8) ?[32]u8 {
-    const p_start = std.mem.indexOf(u8, event_json, "[\"p\",\"") orelse return null;
-    const hex_start = p_start + 6;
-    if (hex_start + 64 > event_json.len) return null;
-    var out: [32]u8 = undefined;
-    hex.decode(event_json[hex_start..][0..64], &out) catch return null;
-    return out;
+    var iter = utils.TagIterator.initStrict(event_json, "tags") orelse return null;
+    while (iter.next()) |tag| {
+        if (!std.mem.eql(u8, tag.name, "p")) continue;
+        if (tag.value.len != 64) return null;
+        var out: [32]u8 = undefined;
+        hex.decode(tag.value, &out) catch return null;
+        return out;
+    }
+    return null;
 }
 
 pub const ETagIterator = struct {
-    json: []const u8,
-    pos: usize,
+    tags: ?utils.TagIterator,
 
     pub fn init(event_json: []const u8) ETagIterator {
-        return .{ .json = event_json, .pos = 0 };
+        return .{ .tags = utils.TagIterator.initStrict(event_json, "tags") };
     }
 
     pub fn next(self: *ETagIterator) ?ETagRef {
-        while (self.pos < self.json.len) {
-            const tag_start = std.mem.indexOf(u8, self.json[self.pos..], "[\"e\",\"");
-            if (tag_start == null) return null;
-
-            const abs_start = self.pos + tag_start.? + 6;
-            self.pos = abs_start;
-
-            if (abs_start + 64 > self.json.len) return null;
-
-            const event_id = self.json[abs_start..][0..64];
-            var valid = true;
-            for (event_id) |c| {
-                if (!std.ascii.isHex(c)) {
-                    valid = false;
-                    break;
-                }
-            }
-            if (!valid) {
-                self.pos = abs_start + 1;
-                continue;
-            }
-
-            self.pos = abs_start + 64;
-            if (self.pos >= self.json.len or self.json[self.pos] != '"') return null;
-            self.pos += 1;
-
-            const tag_end = std.mem.indexOf(u8, self.json[self.pos..], "]") orelse return null;
-            const rest = self.json[self.pos..][0..tag_end];
-            self.pos += tag_end + 1;
-
-            var relay: ?[]const u8 = null;
-            var marker: ?[]const u8 = null;
-
-            var field_idx: usize = 0;
-            var i: usize = 0;
-            while (i < rest.len) {
-                if (rest[i] == '"') {
-                    const str_start = i + 1;
-                    const str_end = std.mem.indexOf(u8, rest[str_start..], "\"") orelse break;
-                    const value = rest[str_start..][0..str_end];
-                    if (field_idx == 0) {
-                        if (value.len > 0) relay = value;
-                    } else if (field_idx == 1) {
-                        if (value.len > 0) marker = value;
-                    }
-                    field_idx += 1;
-                    i = str_start + str_end + 1;
-                } else {
-                    i += 1;
-                }
-            }
-
-            return .{ .event_id = event_id, .relay = relay, .marker = marker };
+        const tags = if (self.tags) |*t| t else return null;
+        while (tags.next()) |tag| {
+            if (!std.mem.eql(u8, tag.name, "e") or tag.value.len != 64) continue;
+            var out: [32]u8 = undefined;
+            hex.decode(tag.value, &out) catch continue;
+            const strings = utils.parseTagStrings(tag.raw, 4) orelse continue;
+            return .{
+                .event_id = tag.value,
+                .relay = if (strings[2].len > 0) strings[2] else null,
+                .marker = if (strings[3].len > 0) strings[3] else null,
+            };
         }
         return null;
     }
@@ -325,4 +285,31 @@ test "parseMutedPubkey invalid hex" {
 test "parseMutedPubkey missing tag" {
     const json = "{\"tags\":[[\"e\",\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]]}";
     try std.testing.expect(parseMutedPubkey(json) == null);
+}
+
+test "tag helpers ignore decoy tags outside the top-level tags member" {
+    const decoys = [_][]const u8{
+        \\{"x":[["e","1111111111111111111111111111111111111111111111111111111111111111","","root"],["p","1111111111111111111111111111111111111111111111111111111111111111"]],"kind":42,"tags":[["e","2222222222222222222222222222222222222222222222222222222222222222","wss://r","root"],["p","2222222222222222222222222222222222222222222222222222222222222222"]]}
+        ,
+        \\{"kind":42,"x":{"tags":[["e","1111111111111111111111111111111111111111111111111111111111111111","","root"],["p","1111111111111111111111111111111111111111111111111111111111111111"]]},"tags":[["e","2222222222222222222222222222222222222222222222222222222222222222","wss://r","root"],["p","2222222222222222222222222222222222222222222222222222222222222222"]]}
+        ,
+    };
+    for (decoys) |json| {
+        try std.testing.expectEqual(@as(u8, 0x22), parseChannelRef(json).?[0]);
+        try std.testing.expectEqual(@as(u8, 0x22), parseChannelMetadataRef(json).?[0]);
+        try std.testing.expectEqual(@as(u8, 0x22), parseMutedPubkey(json).?[0]);
+        var iter = ETagIterator.init(json);
+        try std.testing.expectEqualStrings("wss://r", iter.next().?.relay.?);
+        try std.testing.expect(iter.next() == null);
+    }
+}
+
+test "tag helpers fail closed on malformed tags" {
+    const json =
+        \\{"kind":42,"tags":[["e","2222222222222222222222222222222222222222222222222222222222222222","wss://r","root"],["p","2222222222222222222222222222222222222222222222222222222222222222"],["x",1]]}
+    ;
+    try std.testing.expect(parseChannelRef(json) == null);
+    try std.testing.expect(parseMutedPubkey(json) == null);
+    var iter = ETagIterator.init(json);
+    try std.testing.expect(iter.next() == null);
 }
