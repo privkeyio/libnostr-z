@@ -11,6 +11,15 @@ pub const Filter = filter_mod.Filter;
 pub const FilterTagEntry = filter_mod.FilterTagEntry;
 pub const TagValue = tags.TagValue;
 
+fn clampKind(v: i64) i32 {
+    return @intCast(std.math.clamp(v, std.math.minInt(i32), std.math.maxInt(i32)));
+}
+
+fn parseLimit(v: i64) ?u32 {
+    if (v < 0) return null;
+    return std.math.cast(u32, v) orelse std.math.maxInt(u32);
+}
+
 pub const ClientMsgType = enum {
     event,
     req,
@@ -176,7 +185,7 @@ pub const ClientMsg = struct {
                     var kinds_list: std.ArrayListUnmanaged(i32) = .empty;
                     for (kinds_val.array.items) |k| {
                         if (k == .integer) {
-                            try kinds_list.append(allocator, @intCast(k.integer));
+                            try kinds_list.append(allocator, clampKind(k.integer));
                         }
                     }
                     if (kinds_list.items.len > 0) {
@@ -188,9 +197,7 @@ pub const ClientMsg = struct {
             }
 
             if (filter_obj.get("limit")) |v| {
-                if (v == .integer) {
-                    filter.limit_val = @intCast(v.integer);
-                }
+                if (v == .integer) filter.limit_val = parseLimit(v.integer);
             }
 
             if (filter_obj.get("since")) |v| {
@@ -337,7 +344,7 @@ pub const ClientMsg = struct {
                 var kinds_list: std.ArrayListUnmanaged(i32) = .empty;
                 for (kinds_val.array.items) |kind_val| {
                     if (kind_val == .integer) {
-                        try kinds_list.append(allocator, @intCast(kind_val.integer));
+                        try kinds_list.append(allocator, clampKind(kind_val.integer));
                     }
                 }
                 if (kinds_list.items.len > 0) {
@@ -357,7 +364,7 @@ pub const ClientMsg = struct {
         }
 
         if (filter_obj.get("limit")) |limit_val| {
-            if (limit_val == .integer) filter.limit_val = @intCast(limit_val.integer);
+            if (limit_val == .integer) filter.limit_val = parseLimit(limit_val.integer);
         }
 
         return filter;
@@ -579,7 +586,7 @@ pub const RelayMsgParsed = struct {
             if (arr.len > 2 and arr[2] == .object) {
                 if (arr[2].object.get("count")) |c| {
                     if (c == .integer) {
-                        msg.count_val = @intCast(c.integer);
+                        msg.count_val = std.math.cast(u64, c.integer) orelse 0;
                     }
                 }
             }
@@ -1090,9 +1097,60 @@ test "ClientMsg.getFilters parses multiple filters" {
 
     try std.testing.expectEqual(@as(usize, 2), filters.len);
     try std.testing.expectEqual(@as(i32, 1), filters[0].kinds_slice.?[0]);
-    try std.testing.expectEqual(@as(i32, 10), filters[0].limit_val);
+    try std.testing.expectEqual(@as(?u32, 10), filters[0].limit_val);
+    try std.testing.expectEqual(@as(?u32, null), filters[1].limit_val);
     try std.testing.expectEqual(@as(i32, 7), filters[1].kinds_slice.?[0]);
     try std.testing.expectEqual(@as(i64, 1700000000), filters[1].since_val);
+}
+
+test "ClientMsg.getFilters keeps limit 0 and clamps out-of-range integers" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["REQ","s",{"limit":0},{"limit":99999999999,"kinds":[99999999999,-99999999999]},{"limit":-5}]
+    ;
+
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    const filters = try msg.getFilters(allocator);
+    defer {
+        for (filters) |*f| f.deinit();
+        allocator.free(filters);
+    }
+
+    try std.testing.expectEqual(@as(?u32, 0), filters[0].limit());
+    try std.testing.expectEqual(@as(?u32, std.math.maxInt(u32)), filters[1].limit());
+    try std.testing.expectEqualSlices(i32, &.{ std.math.maxInt(i32), std.math.minInt(i32) }, filters[1].kinds().?);
+    try std.testing.expectEqual(@as(?u32, null), filters[2].limit());
+}
+
+test "ClientMsg.getNegFilter clamps out-of-range integers" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["NEG-OPEN","s",{"limit":99999999999,"kinds":[99999999999]},"6100"]
+    ;
+
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    var filter = (try msg.getNegFilter(allocator)).?;
+    defer filter.deinit();
+
+    try std.testing.expectEqual(@as(?u32, std.math.maxInt(u32)), filter.limit());
+    try std.testing.expectEqualSlices(i32, &.{std.math.maxInt(i32)}, filter.kinds().?);
+}
+
+test "RelayMsgParsed clamps a negative COUNT to zero" {
+    const msg = try RelayMsgParsed.parse(
+        \\["COUNT","s",{"count":-1}]
+    , std.testing.allocator);
+    try std.testing.expectEqual(@as(?u64, 0), msg.count_val);
+}
+
+test "Filter.serialize emits limit 0" {
+    const filter = Filter{ .limit_val = 0 };
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("{\"limit\":0}", try filter.serialize(&buf));
 }
 
 test "countMsg builds a NIP-45 COUNT request" {
