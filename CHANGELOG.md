@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- StringZilla is pinned by commit (`7ca3964`, the commit tag v4.5.1 points to) instead of by tag. The content hash is unchanged.
+
 ## [0.5.0] - 2026-10-06
 
 Builds with Zig 0.17 as well as 0.16, and finishes the field-confusion fix from 0.4.0 in the client-side NIP-17, NIP-28, NIP-57, NWC and CLINK helpers. Some of their public types change, so this is a minor version bump.
