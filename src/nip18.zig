@@ -406,7 +406,7 @@ test "getRepostedEventJson extracts embedded event" {
     defer event_mod.cleanup();
 
     const embedded_event =
-        \\{"id":"cccc","pubkey":"dddd","kind":1,"content":"original"}
+        \\{\"id\":\"cccc\",\"pubkey\":\"dddd\",\"kind\":1,\"content\":\"original\"}
     ;
     const json = std.fmt.comptimePrint(
         \\{{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":6,"created_at":1700000000,"content":"{s}","tags":[["e","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]]}}

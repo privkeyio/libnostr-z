@@ -383,10 +383,11 @@ pub fn unescapeJsonString(input: []const u8, output: []u8) ?[]u8 {
 }
 
 fn findRelaysTag(json: []const u8) ?[]const u8 {
-    const tags_start = std.mem.indexOf(u8, json, "\"tags\"") orelse return null;
-    const search_region = json[tags_start..];
+    const tags_start = utils.findJsonFieldStart(json, "tags") orelse return null;
+    const tags_end = utils.skipJsonValue(json, tags_start) orelse return null;
+    if (json[tags_start] != '[') return null;
 
-    const relays_marker = std.mem.indexOf(u8, search_region, "[\"relays\"") orelse return null;
+    const relays_marker = std.mem.indexOf(u8, json[tags_start..tags_end], "[\"relays\"") orelse return null;
     const tag_start = tags_start + relays_marker;
 
     var depth: i32 = 0;

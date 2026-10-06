@@ -1,4 +1,5 @@
 const std = @import("std");
+const utils = @import("utils.zig");
 
 pub const Auth = struct {
     pub const Tags = struct {
@@ -8,103 +9,17 @@ pub const Auth = struct {
 
     pub fn extractTags(json: []const u8) Tags {
         var result = Tags{};
-
-        const tags_start = std.mem.indexOf(u8, json, "\"tags\"") orelse return result;
-        var pos = tags_start + 6;
-
-        while (pos < json.len and json[pos] != '[') : (pos += 1) {}
-        if (pos >= json.len) return result;
-        pos += 1;
-
-        var depth: i32 = 0;
-        var in_string = false;
-        var escape = false;
-        var tag_start: ?usize = null;
-
-        while (pos < json.len) {
-            const c = json[pos];
-
-            if (escape) {
-                escape = false;
-                pos += 1;
-                continue;
+        var iter = utils.TagIterator.init(json, "tags") orelse return result;
+        while (iter.next()) |tag| {
+            if (tag.value.len == 0) continue;
+            if (std.mem.eql(u8, tag.name, "relay")) {
+                result.relay = tag.value;
+            } else if (std.mem.eql(u8, tag.name, "challenge")) {
+                result.challenge = tag.value;
             }
-            if (c == '\\' and in_string) {
-                escape = true;
-                pos += 1;
-                continue;
-            }
-            if (c == '"') {
-                in_string = !in_string;
-                pos += 1;
-                continue;
-            }
-
-            if (!in_string) {
-                if (c == '[') {
-                    if (depth == 0) {
-                        tag_start = pos;
-                    }
-                    depth += 1;
-                } else if (c == ']') {
-                    depth -= 1;
-                    if (depth == 0 and tag_start != null) {
-                        const tag_json = json[tag_start.? .. pos + 1];
-                        extractAuthTagValues(tag_json, &result);
-                        tag_start = null;
-                    }
-                    if (depth < 0) break;
-                }
-            }
-
-            pos += 1;
         }
-
+        if (iter.malformed) return .{};
         return result;
-    }
-
-    fn extractAuthTagValues(tag_json: []const u8, result: *Tags) void {
-        var values: [2]?[]const u8 = .{ null, null };
-        var value_idx: usize = 0;
-        var pos: usize = 0;
-        var in_string = false;
-        var string_start: usize = 0;
-        var escape = false;
-
-        while (pos < tag_json.len and value_idx < 2) {
-            const c = tag_json[pos];
-
-            if (escape) {
-                escape = false;
-                pos += 1;
-                continue;
-            }
-            if (c == '\\' and in_string) {
-                escape = true;
-                pos += 1;
-                continue;
-            }
-
-            if (c == '"') {
-                if (in_string) {
-                    values[value_idx] = tag_json[string_start..pos];
-                    value_idx += 1;
-                } else {
-                    string_start = pos + 1;
-                }
-                in_string = !in_string;
-            }
-
-            pos += 1;
-        }
-
-        if (values[0] != null and values[1] != null) {
-            if (std.mem.eql(u8, values[0].?, "relay")) {
-                result.relay = values[1].?;
-            } else if (std.mem.eql(u8, values[0].?, "challenge")) {
-                result.challenge = values[1].?;
-            }
-        }
     }
 
     pub fn extractDomain(url: []const u8) ?[]const u8 {

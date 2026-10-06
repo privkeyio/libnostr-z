@@ -84,12 +84,14 @@ pub const Event = struct {
     }
 
     pub fn parseWithAllocator(json: []const u8, allocator: std.mem.Allocator) Error!Event {
-        const id_bytes = utils.extractHexField(json, "id", 32) orelse return error.InvalidId;
-        const pubkey_bytes = utils.extractHexField(json, "pubkey", 32) orelse return error.InvalidPubkey;
-        const sig_bytes = utils.extractHexField(json, "sig", 64) orelse return error.InvalidSig;
-        const created_at = utils.extractIntField(json, "created_at", i64) orelse return error.InvalidCreatedAt;
-        const kind_num = utils.extractIntField(json, "kind", i32) orelse return error.InvalidKind;
-        if (utils.findJsonFieldStart(json, "content") == null) return error.MissingField;
+        var at: [7]?usize = undefined;
+        if (!utils.findTopLevelFields(json, &.{ "id", "pubkey", "sig", "created_at", "kind", "content", "tags" }, &at)) return error.InvalidJson;
+        const id_bytes = utils.hexFieldAt(json, at[0] orelse return error.InvalidId, 32) orelse return error.InvalidId;
+        const pubkey_bytes = utils.hexFieldAt(json, at[1] orelse return error.InvalidPubkey, 32) orelse return error.InvalidPubkey;
+        const sig_bytes = utils.hexFieldAt(json, at[2] orelse return error.InvalidSig, 64) orelse return error.InvalidSig;
+        const created_at = utils.intFieldAt(json, at[3] orelse return error.InvalidCreatedAt, i64) orelse return error.InvalidCreatedAt;
+        const kind_num = utils.intFieldAt(json, at[4] orelse return error.InvalidKind, i32) orelse return error.InvalidKind;
+        if (json[at[5] orelse return error.MissingField] != '"') return error.InvalidContent;
 
         var event = Event{
             .id_bytes = id_bytes,
@@ -103,9 +105,9 @@ pub const Event = struct {
             .tags = TagIndex.init(allocator),
         };
 
-        var iter = utils.TagIterator.init(json, "tags") orelse {
-            return event;
-        };
+        const tags_start = at[6] orelse return event;
+        errdefer event.deinit();
+        var iter = utils.TagIterator.initAt(json, tags_start) orelse return error.InvalidTags;
         while (iter.next()) |tag| {
             event.tag_count += 1;
 
@@ -115,7 +117,7 @@ pub const Event = struct {
             }
 
             if (std.mem.eql(u8, tag.name, "d")) {
-                event.d_tag_val = utils.findStringInJson(json, tag.value);
+                event.d_tag_val = tag.value;
             } else if (std.mem.eql(u8, tag.name, "expiration")) {
                 event.expiration_val = std.fmt.parseInt(i64, tag.value, 10) catch null;
             }
@@ -143,6 +145,7 @@ pub const Event = struct {
                 }
             }
         }
+        if (iter.malformed) return error.InvalidTags;
 
         return event;
     }
@@ -661,4 +664,85 @@ test "Kind.isJobRequest and isJobResult" {
     try std.testing.expect(Kind.isJobResult(6999));
     try std.testing.expect(!Kind.isJobResult(5999));
     try std.testing.expect(!Kind.isJobResult(7000));
+}
+
+const signed_auth_event =
+    \\{"kind":22242,"id":"4c2810e16a8f143e96d5dd885c043fb2b8ab75696670fdb396ba6f2e4d152434","pubkey":"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798","created_at":1700000000,"tags":[["relay","wss://r2"],["challenge","c2"]],"content":"","sig":"3c2394943970a921b7087dde34be5cf8609845d8defa5ffab4a5ce57f5f8b9c4b12319292171b7d4fd3585ec9919074cf12c4ae6cd7b21949bebda5ef3cd43ec"}
+;
+
+test "Event fields come only from top-level members, never from decoys" {
+    try init();
+    defer cleanup();
+
+    const decoys = [_][]const u8{
+        \\{"a":"tags","b":[["relay","wss://evil"],["challenge","EVIL"],["-"],["expiration","1"]],
+        ,
+        \\{"x":{"tags" :[["relay","wss://evil"],["challenge","EVIL"],["-"],["expiration","1"]],"kind":5,"content":"evil"},
+        ,
+        \\{"x":"\"tags\":[[\"challenge\",\"EVIL\"]]","y":["tags",{"tags":[["challenge","EVIL"]]}],
+    };
+    for (decoys) |prefix| {
+        var buf: [1024]u8 = undefined;
+        const json = try std.fmt.bufPrint(&buf, "{s}{s}", .{ prefix, signed_auth_event[1..] });
+
+        var event = try Event.parseWithAllocator(json, std.testing.allocator);
+        defer event.deinit();
+        try event.validate();
+
+        try std.testing.expectEqual(@as(i32, 22242), event.kind());
+        try std.testing.expectEqual(@as(u32, 2), event.tagCount());
+        try std.testing.expect(!event.protected_val);
+        try std.testing.expectEqual(@as(?i64, null), event.expiration_val);
+        try std.testing.expectEqualStrings("", event.content());
+
+        const auth_tags = @import("auth.zig").Auth.extractTags(json);
+        try std.testing.expectEqualStrings("wss://r2", auth_tags.relay.?);
+        try std.testing.expectEqualStrings("c2", auth_tags.challenge.?);
+    }
+}
+
+test "Event.parse rejects duplicate fields, malformed tags and padded hex" {
+    try init();
+    defer cleanup();
+
+    const bad = [_][]const u8{
+        \\{"tags":[["challenge","EVIL"]],
+        ,
+        \\{"kind":1,
+        ,
+        \\{"content":"x",
+        ,
+        \\{"t\u0061gs":[["challenge","EVIL"]],
+        ,
+    };
+    for (bad) |prefix| {
+        var buf: [1024]u8 = undefined;
+        const json = try std.fmt.bufPrint(&buf, "{s}{s}", .{ prefix, signed_auth_event[1..] });
+        try std.testing.expectError(error.InvalidJson, Event.parseWithAllocator(json, std.testing.allocator));
+    }
+    {
+        var buf: [1024]u8 = undefined;
+        const json = try std.fmt.bufPrint(&buf, "{s}{s}", .{ bad[0], signed_auth_event[1..] });
+        try std.testing.expectEqual(@as(?[]const u8, null), @import("auth.zig").Auth.extractTags(json).challenge);
+    }
+
+    const base =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"",
+    ;
+    try std.testing.expectError(error.InvalidTags, Event.parseWithAllocator(base ++ "\"tags\":[[\"e\",1]]}", std.testing.allocator));
+    try std.testing.expectError(error.InvalidTags, Event.parseWithAllocator(base ++ "\"tags\":[\"e\"]}", std.testing.allocator));
+    try std.testing.expectError(error.InvalidTags, Event.parseWithAllocator(base ++ "\"tags\":{}}", std.testing.allocator));
+    var fractional: [base.len + 16]u8 = undefined;
+    _ = std.mem.replace(u8, base ++ "\"tags\":[]}", "\"kind\":1,", "\"kind\":1.5,", &fractional);
+    try std.testing.expectError(error.InvalidKind, Event.parseWithAllocator(fractional[0 .. base.len + 12], std.testing.allocator));
+
+    const padded_id =
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001ff","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":1,"created_at":1700000000,"content":"","tags":[]}
+    ;
+    try std.testing.expectError(error.InvalidId, Event.parseWithAllocator(padded_id, std.testing.allocator));
+
+    var ok = try Event.parseWithAllocator(base ++ "\"tags\":[[],[\"d\",\"x\"], [ \"t\" , \"y\" ]]}", std.testing.allocator);
+    defer ok.deinit();
+    try std.testing.expectEqualStrings("x", ok.dTag().?);
+    try std.testing.expectEqual(@as(u32, 2), ok.tagCount());
 }

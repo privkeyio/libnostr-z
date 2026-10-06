@@ -1,5 +1,6 @@
 const std = @import("std");
 const hex = @import("hex.zig");
+const utils = @import("utils.zig");
 
 pub const Method = enum {
     supportedmethods,
@@ -250,105 +251,19 @@ pub const Nip98Tags = struct {
 
     pub fn extract(json: []const u8) Nip98Tags {
         var result = Nip98Tags{};
-
-        const tags_start = std.mem.indexOf(u8, json, "\"tags\"") orelse return result;
-        var pos = tags_start + 6;
-
-        while (pos < json.len and json[pos] != '[') : (pos += 1) {}
-        if (pos >= json.len) return result;
-        pos += 1;
-
-        var depth: i32 = 0;
-        var in_string = false;
-        var escape = false;
-        var tag_start: ?usize = null;
-
-        while (pos < json.len) {
-            const c = json[pos];
-
-            if (escape) {
-                escape = false;
-                pos += 1;
-                continue;
+        var iter = utils.TagIterator.init(json, "tags") orelse return result;
+        while (iter.next()) |tag| {
+            if (tag.value.len == 0) continue;
+            if (std.mem.eql(u8, tag.name, "u")) {
+                result.url = tag.value;
+            } else if (std.mem.eql(u8, tag.name, "method")) {
+                result.method = tag.value;
+            } else if (std.mem.eql(u8, tag.name, "payload")) {
+                result.payload = tag.value;
             }
-            if (c == '\\' and in_string) {
-                escape = true;
-                pos += 1;
-                continue;
-            }
-            if (c == '"') {
-                in_string = !in_string;
-                pos += 1;
-                continue;
-            }
-
-            if (!in_string) {
-                if (c == '[') {
-                    if (depth == 0) {
-                        tag_start = pos;
-                    }
-                    depth += 1;
-                } else if (c == ']') {
-                    depth -= 1;
-                    if (depth == 0 and tag_start != null) {
-                        const tag_json = json[tag_start.? .. pos + 1];
-                        extractTagValue(tag_json, &result);
-                        tag_start = null;
-                    }
-                    if (depth < 0) break;
-                }
-            }
-
-            pos += 1;
         }
-
+        if (iter.malformed) return .{};
         return result;
-    }
-
-    fn extractTagValue(tag_json: []const u8, result: *Nip98Tags) void {
-        var values: [2]?[]const u8 = .{ null, null };
-        var value_idx: usize = 0;
-        var pos: usize = 0;
-        var in_string = false;
-        var string_start: usize = 0;
-        var escape = false;
-
-        while (pos < tag_json.len and value_idx < 2) {
-            const c = tag_json[pos];
-
-            if (escape) {
-                escape = false;
-                pos += 1;
-                continue;
-            }
-            if (c == '\\' and in_string) {
-                escape = true;
-                pos += 1;
-                continue;
-            }
-
-            if (c == '"') {
-                if (in_string) {
-                    values[value_idx] = tag_json[string_start..pos];
-                    value_idx += 1;
-                } else {
-                    string_start = pos + 1;
-                }
-                in_string = !in_string;
-            }
-
-            pos += 1;
-        }
-
-        if (values[0] != null and values[1] != null) {
-            if (std.mem.eql(u8, values[0].?, "u")) {
-                result.url = values[1].?;
-            } else if (std.mem.eql(u8, values[0].?, "method")) {
-                result.method = values[1].?;
-            } else if (std.mem.eql(u8, values[0].?, "payload")) {
-                result.payload = values[1].?;
-            }
-        }
     }
 };
 
@@ -579,4 +494,22 @@ test "validateNip98Auth full flow" {
     try std.testing.expect(result.err == null);
     try std.testing.expect(result.pubkey != null);
     try std.testing.expectEqualSlices(u8, &keypair.public_key, &result.pubkey.?);
+}
+
+test "Nip98Tags.extract reads only the signed top-level tags" {
+    const signed =
+        \\"kind":27235,"id":"6a59a67f38997c87352d58d8628cbc1d9770557fa4cb9cce531587be6106c14e","pubkey":"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798","created_at":1700000000,"tags":[["u","https://other.example/upload"],["method","POST"],["payload","0000000000000000000000000000000000000000000000000000000000000000"]],"content":"","sig":"44d9e7adb3814ad1d97dec1f711182f0299692aee26ca7293e4c76755da4ca9fbe930354db458401b7126f28e2595f01ed8defddc6ae2627ce0e061c0828ddb0"}
+    ;
+    const json = "{\"a\":\"tags\",\"b\":[[\"u\",\"https://relay.example\"]],\"x\":{\"tags\" :[[\"u\",\"https://relay.example\"]]}," ++ signed;
+
+    try @import("event.zig").init();
+    defer @import("event.zig").cleanup();
+    var event = try Event.parse(json);
+    defer event.deinit();
+    try event.validate();
+
+    const tags = Nip98Tags.extract(json);
+    try std.testing.expectEqualStrings("https://other.example/upload", tags.url.?);
+
+    try std.testing.expectEqual(@as(?[]const u8, null), Nip98Tags.extract("{\"tags\":[[\"u\",\"a\"]],\"tags\":[[\"u\",\"b\"]]}").url);
 }

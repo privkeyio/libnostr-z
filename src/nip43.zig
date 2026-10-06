@@ -21,41 +21,8 @@ pub const Kind = struct {
 };
 
 fn findTagsArray(json: []const u8) ?[]const u8 {
-    var pos: usize = 0;
-    while (std.mem.indexOf(u8, json[pos..], "\"tags\"")) |rel| {
-        const tags_key = pos + rel;
-        if (tags_key > 0 and json[tags_key - 1] != '{' and json[tags_key - 1] != ',' and json[tags_key - 1] != ' ' and json[tags_key - 1] != '\n' and json[tags_key - 1] != '\t') {
-            pos = tags_key + 6;
-            continue;
-        }
-        const after_key = json[tags_key + 6 ..];
-        const colon = std.mem.indexOf(u8, after_key, ":") orelse return null;
-        const after_colon = after_key[colon + 1 ..];
-        const bracket = std.mem.indexOf(u8, after_colon, "[") orelse return null;
-        const start = tags_key + 6 + colon + 1 + bracket;
-        var depth: usize = 1;
-        var i: usize = start + 1;
-        while (i < json.len and depth > 0) : (i += 1) {
-            switch (json[i]) {
-                '[' => depth += 1,
-                ']' => depth -= 1,
-                '"' => {
-                    i += 1;
-                    while (i < json.len) : (i += 1) {
-                        if (json[i] == '\\') {
-                            i += 1;
-                        } else if (json[i] == '"') {
-                            break;
-                        }
-                    }
-                },
-                else => {},
-            }
-        }
-        if (depth != 0) return null;
-        return json[start..i];
-    }
-    return null;
+    const tags = utils.findJsonValue(json, "tags") orelse return null;
+    return if (tags[0] == '[') tags else null;
 }
 
 pub const MemberIterator = struct {
@@ -273,4 +240,14 @@ test "handles escaped quotes in strings" {
     ;
     var pubkey: [32]u8 = undefined;
     try std.testing.expect(parsePTag(json, &pubkey));
+}
+
+test "tag helpers ignore decoy tags outside the top-level tags member" {
+    const json =
+        \\{"x":{"tags":[["p","1111111111111111111111111111111111111111111111111111111111111111"],["-"]]},"kind":8000,"tags":[["p","2222222222222222222222222222222222222222222222222222222222222222"]]}
+    ;
+    var pk: [32]u8 = undefined;
+    try std.testing.expect(parsePTag(json, &pk));
+    try std.testing.expectEqual(@as(u8, 0x22), pk[0]);
+    try std.testing.expect(!hasProtectedTag(json));
 }
