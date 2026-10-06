@@ -39,7 +39,9 @@ pub const ZapRequest = struct {
                     request.event_id = parseHex32(tag.value);
                 }
             } else if (std.mem.eql(u8, tag.name, "amount")) {
-                request.amount = std.fmt.parseInt(u64, tag.value, 10) catch null;
+                // A second or unparseable amount would otherwise skip the amount check.
+                if (request.amount != null) return null;
+                request.amount = parseMillisats(tag.value) orelse return null;
             } else if (std.mem.eql(u8, tag.name, "lnurl")) {
                 request.lnurl = tag.value;
             } else if (std.mem.eql(u8, tag.name, "a")) {
@@ -83,6 +85,10 @@ pub const ZapRequest = struct {
 
         var iter = utils.TagIterator.init(self.raw_json, "tags") orelse return error.InvalidTags;
         while (iter.next()) |tag| {
+            // Tag strings are compared undecoded, so an escaped name or pubkey
+            // could be counted differently here than by a client that decodes it.
+            if (std.mem.indexOfScalar(u8, tag.name, '\\') != null) return error.InvalidTags;
+            if (isPubkeyTag(tag.name) and parseHex32(tag.value) == null) return error.InvalidTags;
             if (std.mem.eql(u8, tag.name, "p") and tag.value.len == 64) {
                 p_count += 1;
             } else if (std.mem.eql(u8, tag.name, "P") and tag.value.len == 64) {
@@ -126,6 +132,16 @@ pub const ZapRequest = struct {
     }
 };
 
+fn isPubkeyTag(name: []const u8) bool {
+    return std.mem.eql(u8, name, "p") or std.mem.eql(u8, name, "P") or std.mem.eql(u8, name, "e");
+}
+
+fn parseMillisats(value: []const u8) ?u64 {
+    if (value.len == 0) return null;
+    for (value) |c| if (c < '0' or c > '9') return null;
+    return std.fmt.parseInt(u64, value, 10) catch null;
+}
+
 pub const ZapReceipt = struct {
     recipient_pubkey: ?[32]u8 = null,
     sender_pubkey: ?[32]u8 = null,
@@ -152,16 +168,22 @@ pub const ZapReceipt = struct {
                     receipt.recipient_pubkey = parseHex32(tag.value);
                 }
             } else if (std.mem.eql(u8, tag.name, "P") and tag.value.len == 64) {
+                if (receipt.sender_pubkey != null) return null;
                 receipt.sender_pubkey = parseHex32(tag.value);
             } else if (std.mem.eql(u8, tag.name, "e") and tag.value.len == 64) {
                 if (receipt.event_id == null) {
                     receipt.event_id = parseHex32(tag.value);
                 }
             } else if (std.mem.eql(u8, tag.name, "bolt11")) {
+                // Clients disagree on which duplicate wins, so a receipt that
+                // repeats what it attests to is rejected.
+                if (receipt.bolt11 != null) return null;
                 receipt.bolt11 = tag.value;
             } else if (std.mem.eql(u8, tag.name, "description")) {
-                if (receipt.description == null) receipt.description = tag.value;
+                if (receipt.description != null) return null;
+                receipt.description = tag.value;
             } else if (std.mem.eql(u8, tag.name, "preimage")) {
+                if (receipt.preimage != null) return null;
                 receipt.preimage = tag.value;
             } else if (std.mem.eql(u8, tag.name, "a")) {
                 receipt.a_tag = tag.value;
@@ -866,4 +888,43 @@ test "zap parsing fails closed on malformed tags" {
     try std.testing.expectEqual(@as(usize, 0), parseZapSplits(
         \\{"tags":[["zap","82341f882b6eabcd2ba7f1ef90aad961cf074af15b9ef44a09f9d2a8fbfbe6a2","wss://good","1"],["zap"],1]}
     , &splits));
+}
+
+test "zap request amount must be a single run of digits" {
+    const base = "{\"kind\":9734,\"content\":\"\",\"tags\":[[\"relays\",\"wss://r.com\"],[\"p\",\"04c915daefee38317fa734444acee390a8269fe5810b2241e5e6dd343dfbecc9\"],";
+    try std.testing.expectEqual(@as(?u64, 21000), ZapRequest.fromEvent(base ++ "[\"amount\",\"21000\"]]}").?.amount);
+    inline for ([_][]const u8{
+        "[\"amount\",\"21000\"],[\"amount\",\"1\"]]}",
+        "[\"amount\",\"abc\"]]}",
+        "[\"amount\",\"1_000\"]]}",
+        "[\"amount\",\"+1000\"]]}",
+        "[\"amount\",\"\"]]}",
+    }) |tail| try std.testing.expect(ZapRequest.fromEvent(base ++ tail) == null);
+}
+
+test "validateServer rejects escaped tag names and malformed pubkeys" {
+    var pk: [32]u8 = undefined;
+    @memset(&pk, 0x04);
+    for ([_][]const u8{
+        \\{"kind":9734,"tags":[["relays","wss://r.com"],["p","04c915daefee38317fa734444acee390a8269fe5810b2241e5e6dd343dfbecc9"],["\u0070","32e1827635450ebb3c5a7d12c1f8e7b2b514439ac10a67eef3d9fd9c5c68e245"]]}
+        ,
+        \\{"kind":9734,"tags":[["relays","wss://r.com"],["p","04c915daefee38317fa734444acee390a8269fe5810b2241e5e6dd343dfbecc9"],["p","\u00332e1827635450ebb3c5a7d12c1f8e7b2b514439ac10a67eef3d9fd9c5c68e245"]]}
+        ,
+        \\{"kind":9734,"tags":[["relays","wss://r.com"],["p","04c915daefee38317fa734444acee390a8269fe5810b2241e5e6dd343dfbecc9"],["e","zz"]]}
+        ,
+    }) |json| {
+        const request = ZapRequest{ .raw_json = json, .recipient_pubkey = pk, .relays_json = "[\"relays\",\"wss://r.com\"]" };
+        try std.testing.expectError(error.InvalidTags, request.validateServer());
+    }
+}
+
+test "zap receipt rejects repeated bolt11, description, preimage or P" {
+    const head = "{\"kind\":9735,\"tags\":[[\"p\",\"32e1827635450ebb3c5a7d12c1f8e7b2b514439ac10a67eef3d9fd9c5c68e245\"],[\"bolt11\",\"lnbc1\"],[\"description\",\"{}\"],";
+    try std.testing.expect(ZapReceipt.fromEvent(head ++ "[\"preimage\",\"aa\"]]}") != null);
+    inline for ([_][]const u8{
+        "[\"bolt11\",\"lnbc2\"]]}",
+        "[\"description\",\"{\\\"x\\\":1}\"]]}",
+        "[\"preimage\",\"aa\"],[\"preimage\",\"bb\"]]}",
+        "[\"P\",\"04c915daefee38317fa734444acee390a8269fe5810b2241e5e6dd343dfbecc9\"],[\"P\",\"04c915daefee38317fa734444acee390a8269fe5810b2241e5e6dd343dfbecc9\"]]}",
+    }) |tail| try std.testing.expect(ZapReceipt.fromEvent(head ++ tail) == null);
 }
