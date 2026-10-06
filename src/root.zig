@@ -142,16 +142,18 @@ pub const hex = @import("hex.zig");
 // bodies, not just the ones with tests. Zig only compiles referenced code, so
 // without this an untested pub fn (e.g. a relay/ws client method) can ship
 // broken; CI runs `zig build test`, which exercises this. (std dropped the
-// recursive variant; this reimplements it for 0.16.)
+// recursive variant; this reimplements it.)
 fn refAllDeclsRecursive(comptime T: type) void {
     inline for (comptime std.meta.declarations(T)) |decl| {
-        if (@TypeOf(@field(T, decl.name)) == type) {
-            switch (@typeInfo(@field(T, decl.name))) {
-                .@"struct", .@"enum", .@"union", .@"opaque" => refAllDeclsRecursive(@field(T, decl.name)),
+        // 0.17 yields declaration names, 0.16 declaration structs.
+        const name = if (@TypeOf(decl) == []const u8 or @TypeOf(decl) == [:0]const u8) decl else decl.name;
+        if (@TypeOf(@field(T, name)) == type) {
+            switch (@typeInfo(@field(T, name))) {
+                .@"struct", .@"enum", .@"union", .@"opaque" => refAllDeclsRecursive(@field(T, name)),
                 else => {},
             }
         }
-        _ = &@field(T, decl.name);
+        _ = &@field(T, name);
     }
 }
 

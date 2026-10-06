@@ -561,8 +561,7 @@ pub fn decryptResponse(
 }
 
 test "Method roundtrip" {
-    inline for (std.meta.fields(Method)) |field| {
-        const method: Method = @enumFromInt(field.value);
+    for (std.enums.values(Method)) |method| {
         const str = method.toString();
         const parsed = Method.fromString(str).?;
         try std.testing.expectEqual(method, parsed);

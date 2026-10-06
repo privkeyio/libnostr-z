@@ -3,10 +3,7 @@ const net = std.Io.net;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-const c = @cImport({
-    @cInclude("openssl/ssl.h");
-    @cInclude("openssl/err.h");
-});
+const c = @import("openssl_c");
 
 // Defined directly rather than via c.SSL_OP_NO_TICKET: translate-c renders
 // OpenSSL's SSL_OP_BIT(n) macro as a u64 shift amount, which fails to compile

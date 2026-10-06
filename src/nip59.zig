@@ -421,7 +421,7 @@ test "createRumor calculates correct id" {
         allocator,
     );
 
-    try std.testing.expect(!std.mem.eql(u8, &rumor.id, &[_]u8{0} ** 32));
+    try std.testing.expect(!std.mem.eql(u8, &rumor.id, &@as([32]u8, @splat(0))));
     try std.testing.expectEqual(@as(i32, 1), rumor.kind);
     try std.testing.expectEqualStrings("test content", rumor.content);
     try std.testing.expectEqual(@as(i64, 1700000000), rumor.created_at);

@@ -209,7 +209,7 @@ pub fn Reader(comptime ReaderType: type) type {
 
         fn readPayload(self: *Self, payload_len: u64, masked: bool) ![]u8 {
             if (payload_len == 0) return &.{};
-            var masking_key = [_]u8{0} ** 4;
+            var masking_key: [4]u8 = @splat(0);
             if (masked) try self.readAll(&masking_key);
             const payload = try self.allocator.alloc(u8, payload_len);
             errdefer self.allocator.free(payload);

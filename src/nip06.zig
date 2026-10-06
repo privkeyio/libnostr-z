@@ -2,11 +2,7 @@ const std = @import("std");
 const crypto = @import("crypto.zig");
 const Keypair = @import("builder.zig").Keypair;
 
-const ec = @cImport({
-    @cInclude("openssl/ec.h");
-    @cInclude("openssl/bn.h");
-    @cInclude("openssl/obj_mac.h");
-});
+const ec = @import("openssl_c");
 
 pub const Error = error{
     InvalidKey,
@@ -356,7 +352,7 @@ test "bip32 normal child derivation m/0'/1" {
 }
 
 test "compressed pubkey generator point" {
-    var secret_key: [32]u8 = [_]u8{0} ** 32;
+    var secret_key: [32]u8 = @splat(0);
     secret_key[31] = 1;
     var compressed: [33]u8 = undefined;
     try getCompressedPubkey(&secret_key, &compressed);

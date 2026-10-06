@@ -845,7 +845,7 @@ test "reconcile rejects an unknown mode and a malformed varint" {
     try std.testing.expectError(Negentropy.Error.ParseError, ne.reconcile(&.{ PROTOCOL_VERSION, 0x00, 0x00, 0xff, 0x01 }, &out, allocator));
     try std.testing.expectError(Negentropy.Error.ParseError, ne.reconcile(&.{ PROTOCOL_VERSION, 0x00, 0x00 }, &out, allocator));
 
-    var bad_varint = [_]u8{0xff} ** 10;
+    var bad_varint: [10]u8 = @splat(0xff);
     bad_varint[0] = PROTOCOL_VERSION;
     bad_varint[9] = 0x02;
     try std.testing.expectError(Negentropy.Error.ParseError, ne.reconcile(&bad_varint, &out, allocator));

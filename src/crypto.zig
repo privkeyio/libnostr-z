@@ -1,8 +1,6 @@
 const std = @import("std");
 
-const nc = @cImport({
-    @cInclude("noscrypt.h");
-});
+const nc = @import("noscrypt_c");
 
 const NC_SUCCESS: i64 = 0;
 

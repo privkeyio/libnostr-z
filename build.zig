@@ -31,15 +31,35 @@ pub fn build(b: *std.Build) void {
         .linkage = .static,
     });
 
+    const noscrypt_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/noscrypt_c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    noscrypt_c.addIncludePath(noscrypt.path("include"));
+    const noscrypt_c_mod = noscrypt_c.createModule();
+
+    const openssl_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/openssl_c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    openssl_c.linkSystemLibrary("ssl", .{});
+    openssl_c.linkSystemLibrary("crypto", .{});
+    const openssl_c_mod = openssl_c.createModule();
+
     const nostr_mod = b.addModule("nostr", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "noscrypt_c", .module = noscrypt_c_mod },
+            .{ .name = "openssl_c", .module = openssl_c_mod },
+        },
     });
 
     nostr_mod.linkLibrary(noscrypt.artifact("noscrypt"));
     nostr_mod.linkLibrary(sz_lib);
-    nostr_mod.addIncludePath(noscrypt.path("include"));
     nostr_mod.linkSystemLibrary("ssl", .{});
     nostr_mod.linkSystemLibrary("crypto", .{});
 
@@ -49,6 +69,10 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "noscrypt_c", .module = noscrypt_c_mod },
+                .{ .name = "openssl_c", .module = openssl_c_mod },
+            },
         }),
     });
 
@@ -62,7 +86,6 @@ pub fn build(b: *std.Build) void {
     }
     tests.root_module.linkLibrary(noscrypt.artifact("noscrypt"));
     tests.root_module.linkLibrary(sz_lib);
-    tests.root_module.addIncludePath(noscrypt.path("include"));
     tests.root_module.linkSystemLibrary("ssl", .{});
     tests.root_module.linkSystemLibrary("crypto", .{});
 

@@ -178,7 +178,7 @@ test "LocalSigner generate and sign" {
     var local = try LocalSigner.generate();
     defer local.deinit();
     const pubkey = local.getPublicKey();
-    try std.testing.expect(!std.mem.eql(u8, &pubkey, &[_]u8{0} ** 32));
+    try std.testing.expect(!std.mem.eql(u8, &pubkey, &@as([32]u8, @splat(0))));
 
     var message: [32]u8 = undefined;
     @import("io.zig").randomBytes(&message);
@@ -233,14 +233,14 @@ test "LocalSigner deinit zeroes key material" {
     var local = try LocalSigner.generate();
 
     // Verify keys are non-zero before deinit
-    try std.testing.expect(!std.mem.eql(u8, &local.secret_key, &[_]u8{0} ** 32));
-    try std.testing.expect(!std.mem.eql(u8, &local.public_key, &[_]u8{0} ** 32));
+    try std.testing.expect(!std.mem.eql(u8, &local.secret_key, &@as([32]u8, @splat(0))));
+    try std.testing.expect(!std.mem.eql(u8, &local.public_key, &@as([32]u8, @splat(0))));
 
     local.deinit();
 
     // Verify keys are zeroed after deinit
-    try std.testing.expectEqualSlices(u8, &[_]u8{0} ** 32, &local.secret_key);
-    try std.testing.expectEqualSlices(u8, &[_]u8{0} ** 32, &local.public_key);
+    try std.testing.expectEqualSlices(u8, &@as([32]u8, @splat(0)), &local.secret_key);
+    try std.testing.expectEqualSlices(u8, &@as([32]u8, @splat(0)), &local.public_key);
 }
 
 test "CallbackSigner with custom implementation" {

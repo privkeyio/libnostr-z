@@ -10,9 +10,8 @@ jobs:
   build:
     strategy:
       matrix:
-        include:
-          - os: ubuntu-latest
-          - os: macos-latest
+        os: [ubuntu-latest, macos-latest]
+        zig: [0.16.0, 0.17.0]
 
     runs-on: ${{ matrix.os }}
     if: github.event.pull_request.draft != true
@@ -36,7 +35,7 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: 0.16.0
+          version: ${{ matrix.zig }}
 
       - name: Build
         run: zig build

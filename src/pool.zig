@@ -259,7 +259,7 @@ pub const Pool = struct {
     }
 
     pub fn disconnectAll(self: *Pool) void {
-        var threads_to_join: [32]?Thread = [_]?Thread{null} ** 32;
+        var threads_to_join: [32]?Thread = @splat(null);
         var thread_count: usize = 0;
 
         {
@@ -751,7 +751,7 @@ pub const Pool = struct {
     }
 
     fn stopReceiving(self: *Pool) void {
-        var threads_to_join: [32]?Thread = [_]?Thread{null} ** 32;
+        var threads_to_join: [32]?Thread = @splat(null);
         var thread_count: usize = 0;
 
         {

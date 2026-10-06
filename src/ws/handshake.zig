@@ -101,7 +101,7 @@ pub fn Client(comptime ReaderType: type, comptime WriterType: type) type {
             }
 
             pub fn valueIncludes(hdr: Header, needle: []const u8) bool {
-                return ascii.indexOfIgnoreCase(hdr.value, needle) != null;
+                return ascii.findIgnoreCase(hdr.value, needle) != null;
             }
 
             pub fn paramValue(hdr: Header, param: []const u8) ?[]const u8 {
@@ -311,9 +311,9 @@ pub const Rsp = struct {
 
 fn initOptions(extensions: []const u8) Options {
     var options: Options = .{};
-    options.per_message_deflate = ascii.indexOfIgnoreCase(extensions, "permessage-deflate") != null;
-    options.server_no_context_takeover = ascii.indexOfIgnoreCase(extensions, "server_no_context_takeover") != null;
-    options.client_no_context_takeover = ascii.indexOfIgnoreCase(extensions, "client_no_context_takeover") != null;
+    options.per_message_deflate = ascii.findIgnoreCase(extensions, "permessage-deflate") != null;
+    options.server_no_context_takeover = ascii.findIgnoreCase(extensions, "server_no_context_takeover") != null;
+    options.client_no_context_takeover = ascii.findIgnoreCase(extensions, "client_no_context_takeover") != null;
     if (paramValue(extensions, "server_max_window_bits")) |v|
         options.server_max_window_bits = std.fmt.parseInt(u4, v, 10) catch 15;
     if (paramValue(extensions, "client_max_window_bits")) |v|

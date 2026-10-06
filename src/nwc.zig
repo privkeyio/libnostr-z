@@ -1127,8 +1127,7 @@ test "Kind constants" {
 }
 
 test "ErrorCode roundtrip" {
-    inline for (std.meta.fields(ErrorCode)) |field| {
-        const code: ErrorCode = @enumFromInt(field.value);
+    for (std.enums.values(ErrorCode)) |code| {
         const str = code.toString();
         const parsed = ErrorCode.fromString(str).?;
         try std.testing.expectEqual(code, parsed);
@@ -1136,8 +1135,7 @@ test "ErrorCode roundtrip" {
 }
 
 test "Method roundtrip" {
-    inline for (std.meta.fields(Method)) |field| {
-        const method: Method = @enumFromInt(field.value);
+    for (std.enums.values(Method)) |method| {
         const str = method.toString();
         const parsed = Method.fromString(str).?;
         try std.testing.expectEqual(method, parsed);
