@@ -11,10 +11,6 @@ pub const Filter = filter_mod.Filter;
 pub const FilterTagEntry = filter_mod.FilterTagEntry;
 pub const TagValue = tags.TagValue;
 
-fn clampKind(v: i64) i32 {
-    return @intCast(std.math.clamp(v, std.math.minInt(i32), std.math.maxInt(i32)));
-}
-
 fn parseLimit(v: i64) ?u32 {
     if (v < 0) return null;
     return std.math.cast(u32, v) orelse std.math.maxInt(u32);
@@ -153,7 +149,7 @@ pub const ClientMsg = struct {
                             } else |_| {}
                         }
                     }
-                    if (ids_list.items.len > 0) {
+                    if (ids_val.array.items.len > 0) {
                         filter.ids_bytes = try ids_list.toOwnedSlice(allocator);
                     } else {
                         ids_list.deinit(allocator);
@@ -172,7 +168,7 @@ pub const ClientMsg = struct {
                             } else |_| {}
                         }
                     }
-                    if (authors_list.items.len > 0) {
+                    if (authors_val.array.items.len > 0) {
                         filter.authors_bytes = try authors_list.toOwnedSlice(allocator);
                     } else {
                         authors_list.deinit(allocator);
@@ -185,10 +181,10 @@ pub const ClientMsg = struct {
                     var kinds_list: std.ArrayListUnmanaged(i32) = .empty;
                     for (kinds_val.array.items) |k| {
                         if (k == .integer) {
-                            try kinds_list.append(allocator, clampKind(k.integer));
+                            if (std.math.cast(i32, k.integer)) |kind| try kinds_list.append(allocator, kind);
                         }
                     }
-                    if (kinds_list.items.len > 0) {
+                    if (kinds_val.array.items.len > 0) {
                         filter.kinds_slice = try kinds_list.toOwnedSlice(allocator);
                     } else {
                         kinds_list.deinit(allocator);
@@ -312,7 +308,7 @@ pub const ClientMsg = struct {
                         } else |_| {}
                     }
                 }
-                if (ids_list.items.len > 0) {
+                if (ids_val.array.items.len > 0) {
                     filter.ids_bytes = try ids_list.toOwnedSlice(allocator);
                 } else {
                     ids_list.deinit(allocator);
@@ -331,7 +327,7 @@ pub const ClientMsg = struct {
                         } else |_| {}
                     }
                 }
-                if (authors_list.items.len > 0) {
+                if (authors_val.array.items.len > 0) {
                     filter.authors_bytes = try authors_list.toOwnedSlice(allocator);
                 } else {
                     authors_list.deinit(allocator);
@@ -344,10 +340,10 @@ pub const ClientMsg = struct {
                 var kinds_list: std.ArrayListUnmanaged(i32) = .empty;
                 for (kinds_val.array.items) |kind_val| {
                     if (kind_val == .integer) {
-                        try kinds_list.append(allocator, clampKind(kind_val.integer));
+                        if (std.math.cast(i32, kind_val.integer)) |kind| try kinds_list.append(allocator, kind);
                     }
                 }
-                if (kinds_list.items.len > 0) {
+                if (kinds_val.array.items.len > 0) {
                     filter.kinds_slice = try kinds_list.toOwnedSlice(allocator);
                 } else {
                     kinds_list.deinit(allocator);
@@ -1103,10 +1099,10 @@ test "ClientMsg.getFilters parses multiple filters" {
     try std.testing.expectEqual(@as(i64, 1700000000), filters[1].since_val);
 }
 
-test "ClientMsg.getFilters keeps limit 0 and clamps out-of-range integers" {
+test "ClientMsg.getFilters keeps limit 0 and handles out-of-range integers" {
     const allocator = std.testing.allocator;
     const json =
-        \\["REQ","s",{"limit":0},{"limit":99999999999,"kinds":[99999999999,-99999999999]},{"limit":-5}]
+        \\["REQ","s",{"limit":0},{"limit":99999999999,"kinds":[99999999999,-99999999999,7]},{"limit":-5}]
     ;
 
     var msg = try ClientMsg.parseWithAllocator(json, allocator);
@@ -1120,11 +1116,39 @@ test "ClientMsg.getFilters keeps limit 0 and clamps out-of-range integers" {
 
     try std.testing.expectEqual(@as(?u32, 0), filters[0].limit());
     try std.testing.expectEqual(@as(?u32, std.math.maxInt(u32)), filters[1].limit());
-    try std.testing.expectEqualSlices(i32, &.{ std.math.maxInt(i32), std.math.minInt(i32) }, filters[1].kinds().?);
+    try std.testing.expectEqualSlices(i32, &.{7}, filters[1].kinds().?);
     try std.testing.expectEqual(@as(?u32, null), filters[2].limit());
 }
 
-test "ClientMsg.getNegFilter clamps out-of-range integers" {
+test "ClientMsg.getFilters does not widen a filter whose entries are all unusable" {
+    const allocator = std.testing.allocator;
+    const json =
+        \\["REQ","s",{"kinds":[99999999999999999999]},{"kinds":[1.5,"1"]},{"ids":["zz"]},{"authors":[1]},{"kinds":[]}]
+    ;
+
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    const filters = try msg.getFilters(allocator);
+    defer {
+        for (filters) |*f| f.deinit();
+        allocator.free(filters);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), filters[0].kinds().?.len);
+    try std.testing.expectEqual(@as(usize, 0), filters[1].kinds().?.len);
+    try std.testing.expectEqual(@as(usize, 0), filters[2].ids().?.len);
+    try std.testing.expectEqual(@as(usize, 0), filters[3].authors().?.len);
+    try std.testing.expectEqual(@as(?[]const i32, null), filters[4].kinds());
+
+    var event = try Event.parseWithAllocator(
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","created_at":1700000000,"kind":1,"tags":[],"content":"","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}
+    , allocator);
+    defer event.deinit();
+    for (filters[0..4]) |*f| try std.testing.expect(!f.matches(&event));
+}
+
+test "ClientMsg.getNegFilter handles out-of-range integers" {
     const allocator = std.testing.allocator;
     const json =
         \\["NEG-OPEN","s",{"limit":99999999999,"kinds":[99999999999]},"6100"]
@@ -1137,7 +1161,19 @@ test "ClientMsg.getNegFilter clamps out-of-range integers" {
     defer filter.deinit();
 
     try std.testing.expectEqual(@as(?u32, std.math.maxInt(u32)), filter.limit());
-    try std.testing.expectEqualSlices(i32, &.{std.math.maxInt(i32)}, filter.kinds().?);
+    try std.testing.expectEqual(@as(usize, 0), filter.kinds().?.len);
+}
+
+test "ClientMsg.getNegFilter ignores a negative limit" {
+    const allocator = std.testing.allocator;
+    var msg = try ClientMsg.parseWithAllocator(
+        \\["NEG-OPEN","s",{"limit":-1},"6100"]
+    , allocator);
+    defer msg.deinit();
+
+    var filter = (try msg.getNegFilter(allocator)).?;
+    defer filter.deinit();
+    try std.testing.expectEqual(@as(?u32, null), filter.limit());
 }
 
 test "RelayMsgParsed clamps a negative COUNT to zero" {

@@ -315,8 +315,9 @@ pub const Negentropy = struct {
             const curr_bound = bound_result.bound;
 
             const mode_result = decodeVarInt(q);
+            if (mode_result.len == 0) return Error.ParseError;
             q = q[mode_result.len..];
-            const mode: Mode = @enumFromInt(@as(u8, @truncate(mode_result.value)));
+            const mode = std.enums.fromInt(Mode, mode_result.value) orelse return Error.ParseError;
 
             const lower = prev_index;
             const upper = self.storage.findLowerBound(prev_index, storage_size, curr_bound);
@@ -350,6 +351,7 @@ pub const Negentropy = struct {
                 },
                 .id_list => {
                     const num_ids_result = decodeVarInt(q);
+                    if (num_ids_result.len == 0) return Error.ParseError;
                     q = q[num_ids_result.len..];
                     const num_ids = num_ids_result.value;
 
@@ -504,8 +506,10 @@ pub const Negentropy = struct {
     fn decodeBound(self: *Negentropy, data: []const u8) !struct { bound: Bound, len: usize } {
         var pos: usize = 0;
         const ts_result = self.decodeTimestampIn(data);
+        if (ts_result.len == 0) return error.ParseError;
         pos += ts_result.len;
         const id_len_result = decodeVarInt(data[pos..]);
+        if (id_len_result.len == 0) return error.ParseError;
         pos += id_len_result.len;
         const id_len = id_len_result.value;
         if (id_len > ID_SIZE or pos + id_len > data.len) return error.ParseError;
@@ -827,6 +831,24 @@ test "empty storage reconciliation" {
 
     try std.testing.expectEqual(@as(usize, 0), server_result.have_ids.items.len);
     try std.testing.expectEqual(@as(usize, 0), server_result.need_ids.items.len);
+}
+
+test "reconcile rejects an unknown mode and a malformed varint" {
+    const allocator = std.testing.allocator;
+
+    var storage = VectorStorage.init(allocator);
+    defer storage.deinit();
+
+    var out: [4096]u8 = undefined;
+    var ne = Negentropy.init(storage.storage(), 0);
+    try std.testing.expectError(Negentropy.Error.ParseError, ne.reconcile(&.{ PROTOCOL_VERSION, 0x00, 0x00, 0x03 }, &out, allocator));
+    try std.testing.expectError(Negentropy.Error.ParseError, ne.reconcile(&.{ PROTOCOL_VERSION, 0x00, 0x00, 0xff, 0x01 }, &out, allocator));
+    try std.testing.expectError(Negentropy.Error.ParseError, ne.reconcile(&.{ PROTOCOL_VERSION, 0x00, 0x00 }, &out, allocator));
+
+    var bad_varint = [_]u8{0xff} ** 10;
+    bad_varint[0] = PROTOCOL_VERSION;
+    bad_varint[9] = 0x02;
+    try std.testing.expectError(Negentropy.Error.ParseError, ne.reconcile(&bad_varint, &out, allocator));
 }
 
 test "Fingerprint equality" {
