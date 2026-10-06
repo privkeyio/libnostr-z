@@ -31,61 +31,18 @@ pub const FileMetadata = struct {
 };
 
 pub const ReceiverIterator = struct {
-    json: []const u8,
-    pos: usize,
+    tags: ?utils.TagIterator,
 
     pub fn init(event_json: []const u8) ReceiverIterator {
-        return .{ .json = event_json, .pos = 0 };
+        return .{ .tags = utils.TagIterator.initStrict(event_json, "tags") };
     }
 
     pub fn next(self: *ReceiverIterator) ?Receiver {
-        while (self.pos < self.json.len) {
-            const tag_start = std.mem.indexOf(u8, self.json[self.pos..], "[\"p\",\"");
-            if (tag_start == null) return null;
-
-            const abs_start = self.pos + tag_start.? + 6;
-            self.pos = abs_start;
-
-            if (abs_start + 64 > self.json.len) return null;
-
-            const pubkey = self.json[abs_start..][0..64];
-            var valid = true;
-            for (pubkey) |c| {
-                if (!std.ascii.isHex(c)) {
-                    valid = false;
-                    break;
-                }
-            }
-            if (!valid) {
-                self.pos = abs_start + 1;
-                continue;
-            }
-
-            self.pos = abs_start + 64;
-            if (self.pos >= self.json.len or self.json[self.pos] != '"') {
-                self.pos = abs_start + 1;
-                continue;
-            }
-            self.pos += 1;
-
-            const tag_end = std.mem.indexOf(u8, self.json[self.pos..], "]") orelse return null;
-            const rest = self.json[self.pos..][0..tag_end];
-            self.pos += tag_end + 1;
-
-            var relay: ?[]const u8 = null;
-            var i: usize = 0;
-            while (i < rest.len) {
-                if (rest[i] == '"') {
-                    const str_start = i + 1;
-                    const str_end = std.mem.indexOf(u8, rest[str_start..], "\"") orelse break;
-                    const value = rest[str_start..][0..str_end];
-                    if (value.len > 0) relay = value;
-                    break;
-                }
-                i += 1;
-            }
-
-            return .{ .pubkey = pubkey, .relay = relay };
+        const tags = if (self.tags) |*t| t else return null;
+        while (tags.next()) |tag| {
+            if (!std.mem.eql(u8, tag.name, "p") or !isHex64(tag.value)) continue;
+            const strings = utils.parseTagStrings(tag.raw, 3) orelse continue;
+            return .{ .pubkey = tag.value, .relay = if (strings[2].len > 0) strings[2] else null };
         }
         return null;
     }
@@ -103,30 +60,15 @@ pub fn parseReceivers(event_json: []const u8, out: [][32]u8) usize {
 }
 
 pub fn parseSubject(event_json: []const u8) ?[]const u8 {
-    const start = std.mem.indexOf(u8, event_json, "[\"subject\",\"") orelse return null;
-    const value_start = start + 12;
-    if (value_start >= event_json.len) return null;
-    const value_end = utils.findStringEnd(event_json, value_start) orelse return null;
-    if (value_end == value_start) return null;
-    return event_json[value_start..value_end];
+    return parseTagValue(event_json, "subject");
 }
 
 pub fn parseReplyTo(event_json: []const u8) ?[32]u8 {
-    const start = std.mem.indexOf(u8, event_json, "[\"e\",\"") orelse return null;
-    const hex_start = start + 6;
-    if (hex_start + 64 > event_json.len) return null;
-    var out: [32]u8 = undefined;
-    hex.decode(event_json[hex_start..][0..64], &out) catch return null;
-    return out;
+    return parseHexTag(event_json, "e");
 }
 
 pub fn parseGiftWrapRecipient(event_json: []const u8) ?[32]u8 {
-    const start = std.mem.indexOf(u8, event_json, "[\"p\",\"") orelse return null;
-    const hex_start = start + 6;
-    if (hex_start + 64 > event_json.len) return null;
-    var out: [32]u8 = undefined;
-    hex.decode(event_json[hex_start..][0..64], &out) catch return null;
-    return out;
+    return parseHexTag(event_json, "p");
 }
 
 pub fn parseFileMetadata(event_json: []const u8) FileMetadata {
@@ -146,24 +88,18 @@ pub fn parseFileMetadata(event_json: []const u8) FileMetadata {
 }
 
 pub const RelayIterator = struct {
-    json: []const u8,
-    pos: usize,
+    tags: ?utils.TagIterator,
 
     pub fn init(event_json: []const u8) RelayIterator {
-        return .{ .json = event_json, .pos = 0 };
+        return .{ .tags = utils.TagIterator.initStrict(event_json, "tags") };
     }
 
     pub fn next(self: *RelayIterator) ?[]const u8 {
-        const tag_start = std.mem.indexOf(u8, self.json[self.pos..], "[\"relay\",\"") orelse return null;
-        const abs_start = self.pos + tag_start + 10;
-        self.pos = abs_start;
-
-        if (abs_start >= self.json.len) return null;
-        const value_end = std.mem.indexOf(u8, self.json[abs_start..], "\"") orelse return null;
-        if (value_end == 0) return null;
-
-        self.pos = abs_start + value_end + 1;
-        return self.json[abs_start..][0..value_end];
+        const tags = if (self.tags) |*t| t else return null;
+        while (tags.next()) |tag| {
+            if (std.mem.eql(u8, tag.name, "relay") and tag.value.len > 0) return tag.value;
+        }
+        return null;
     }
 };
 
@@ -194,15 +130,31 @@ pub fn parseKind(event_json: []const u8) ?i32 {
     return utils.extractIntField(event_json, "kind", i32);
 }
 
+fn findTag(json: []const u8, tag_name: []const u8) ?utils.TagIterator.Tag {
+    var iter = utils.TagIterator.initStrict(json, "tags") orelse return null;
+    while (iter.next()) |tag| {
+        if (std.mem.eql(u8, tag.name, tag_name)) return tag;
+    }
+    return null;
+}
+
 fn parseTagValue(json: []const u8, tag_name: []const u8) ?[]const u8 {
-    var buf: [64]u8 = undefined;
-    const needle = std.fmt.bufPrint(&buf, "[\"{s}\",\"", .{tag_name}) catch return null;
-    const start = std.mem.indexOf(u8, json, needle) orelse return null;
-    const value_start = start + needle.len;
-    if (value_start >= json.len) return null;
-    const value_end = std.mem.indexOf(u8, json[value_start..], "\"") orelse return null;
-    if (value_end == 0) return null;
-    return json[value_start..][0..value_end];
+    const tag = findTag(json, tag_name) orelse return null;
+    return if (tag.value.len > 0) tag.value else null;
+}
+
+fn parseHexTag(json: []const u8, tag_name: []const u8) ?[32]u8 {
+    const tag = findTag(json, tag_name) orelse return null;
+    if (tag.value.len != 64) return null;
+    var out: [32]u8 = undefined;
+    hex.decode(tag.value, &out) catch return null;
+    return out;
+}
+
+fn isHex64(value: []const u8) bool {
+    if (value.len != 64) return false;
+    for (value) |c| if (!std.ascii.isHex(c)) return false;
+    return true;
 }
 
 test "Kind constants" {
@@ -352,4 +304,44 @@ test "RelayIterator empty" {
     const json = "{\"kind\":10050,\"tags\":[]}";
     var iter = RelayIterator.init(json);
     try std.testing.expect(iter.next() == null);
+}
+
+test "tag helpers ignore decoy tags outside the top-level tags member" {
+    const decoys = [_][]const u8{
+        \\{"x":[["relay","wss://evil"],["subject","evil"],["e","1111111111111111111111111111111111111111111111111111111111111111"],["p","1111111111111111111111111111111111111111111111111111111111111111","wss://evil"],["file-type","evil"]],"kind":14,"tags":[["p","2222222222222222222222222222222222222222222222222222222222222222"],["e","2222222222222222222222222222222222222222222222222222222222222222"],["subject","real"],["relay","wss://real"],["file-type","image/png"]]}
+        ,
+        \\{"kind":14,"tags":[["p","2222222222222222222222222222222222222222222222222222222222222222"],["e","2222222222222222222222222222222222222222222222222222222222222222"],["subject","real"],["relay","wss://real"],["file-type","image/png"]],"x":{"tags":[["relay","wss://evil"],["subject","evil"]]}}
+        ,
+        \\{"content":"[\"p\",\"1111111111111111111111111111111111111111111111111111111111111111\"]","x":["subject","evil"],"tags":[["p","2222222222222222222222222222222222222222222222222222222222222222"],["e","2222222222222222222222222222222222222222222222222222222222222222"],["subject","real"],["relay","wss://real"],["file-type","image/png"]]}
+        ,
+    };
+    for (decoys) |json| {
+        try std.testing.expectEqual(@as(u8, 0x22), parseGiftWrapRecipient(json).?[0]);
+        try std.testing.expectEqual(@as(u8, 0x22), parseReplyTo(json).?[0]);
+        try std.testing.expectEqualStrings("real", parseSubject(json).?);
+        try std.testing.expectEqualStrings("image/png", parseFileMetadata(json).file_type.?);
+
+        var relays: [4][]const u8 = undefined;
+        try std.testing.expectEqual(@as(usize, 1), parseDmRelays(json, &relays));
+        try std.testing.expectEqualStrings("wss://real", relays[0]);
+
+        var receivers = ReceiverIterator.init(json);
+        const first = receivers.next().?;
+        try std.testing.expectEqual(@as(u8, '2'), first.pubkey[0]);
+        try std.testing.expect(first.relay == null);
+        try std.testing.expect(receivers.next() == null);
+    }
+}
+
+test "tag helpers fail closed on malformed tags" {
+    const json =
+        \\{"kind":14,"tags":[["p","2222222222222222222222222222222222222222222222222222222222222222"],["e","2222222222222222222222222222222222222222222222222222222222222222"],["subject","real"],["relay","wss://real"],["x",1]]}
+    ;
+    try std.testing.expect(parseGiftWrapRecipient(json) == null);
+    try std.testing.expect(parseReplyTo(json) == null);
+    try std.testing.expect(parseSubject(json) == null);
+    var relays: [4][]const u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 0), parseDmRelays(json, &relays));
+    var receivers = ReceiverIterator.init(json);
+    try std.testing.expect(receivers.next() == null);
 }

@@ -235,30 +235,11 @@ pub fn findJsonFieldStart(json: []const u8, key: []const u8) ?usize {
 
 pub fn findStringEnd(json: []const u8, start: usize) ?usize {
     var i = start;
-    var escaped = false;
-    while (i < json.len) {
-        if (escaped) {
-            escaped = false;
-            i += 1;
-            continue;
-        }
-        if (json[i] == '\\') {
-            escaped = true;
-            i += 1;
-            continue;
-        }
-        if (json[i] == '"') {
-            return i;
-        }
-        const byte = json[i];
-        if (byte < 0x80) {
-            i += 1;
-        } else if (byte < 0xE0) {
-            i += 2;
-        } else if (byte < 0xF0) {
-            i += 3;
-        } else {
-            i += 4;
+    while (i < json.len) : (i += 1) {
+        switch (json[i]) {
+            '\\' => i += 1,
+            '"' => return i,
+            else => {},
         }
     }
     return null;
@@ -297,10 +278,20 @@ pub const TagIterator = struct {
     /// of strings. Callers that validate events must reject it.
     malformed: bool = false,
 
-    pub const Tag = struct { name: []const u8, value: []const u8 };
+    /// `raw` is the whole tag array, for reading elements past the second.
+    pub const Tag = struct { name: []const u8, value: []const u8, raw: []const u8 = "" };
 
     pub fn init(json: []const u8, key: []const u8) ?TagIterator {
         return initAt(json, findJsonFieldStart(json, key) orelse return null);
+    }
+
+    /// Like `init`, but null unless every tag is well formed, so a caller that
+    /// stops early never acts on tags that precede a malformed one.
+    pub fn initStrict(json: []const u8, key: []const u8) ?TagIterator {
+        const iter = init(json, key) orelse return null;
+        var probe = iter;
+        while (probe.next()) |_| {}
+        return if (probe.malformed) null else iter;
     }
 
     pub fn initAt(json: []const u8, start: usize) ?TagIterator {
@@ -321,6 +312,7 @@ pub const TagIterator = struct {
             }
             self.started = true;
             if (self.pos >= self.json.len or self.json[self.pos] != '[') return self.fail();
+            const tag_start = self.pos;
             self.pos = skipWs(self.json, self.pos + 1);
 
             var tag = Tag{ .name = "", .value = "" };
@@ -340,6 +332,7 @@ pub const TagIterator = struct {
                 self.pos = skipWs(self.json, self.pos + 1);
             }
             self.pos += 1;
+            tag.raw = self.json[tag_start..self.pos];
             if (count > 0) return tag;
         }
     }
@@ -549,6 +542,19 @@ test "findTopLevelFields rejects malformed objects, duplicates and escaped keys"
     };
     for (bad) |json| try std.testing.expect(!findTopLevelFields(json, &.{"tags"}, &at));
     try std.testing.expect(findTopLevelFields("{\"a\":1,\"a\":2}", &.{"tags"}, &at));
+}
+
+test "findStringEnd scans bytewise like skipJsonValue" {
+    try std.testing.expectEqual(@as(?usize, 1), findStringEnd("\xe0\"abc\"", 0));
+    try std.testing.expectEqual(@as(?usize, 4), findStringEnd("\xc3\xa9\\\"\"", 0));
+    try std.testing.expectEqual(@as(?usize, null), findStringEnd("abc\\\"", 0));
+}
+
+test "TagIterator exposes the raw tag" {
+    var iter = TagIterator.init("{\"tags\":[ [ \"zap\" , \"pk\",\"wss://r\",\"1\"] ,[\"e\"]]}", "tags").?;
+    try std.testing.expectEqualStrings("[ \"zap\" , \"pk\",\"wss://r\",\"1\"]", iter.next().?.raw);
+    try std.testing.expectEqualStrings("[\"e\"]", iter.next().?.raw);
+    try std.testing.expect(iter.next() == null and !iter.malformed);
 }
 
 test "TagIterator reports malformed tags" {

@@ -620,13 +620,18 @@ pub const Response = struct {
     };
 
     pub fn parseJson(json: []const u8) ?Response {
+        var at: [3]?usize = undefined;
+        if (!utils.findTopLevelFields(json, &.{ "result_type", "error", "result" }, &at)) return null;
         const result_type_str = utils.extractJsonString(json, "result_type") orelse return null;
         const result_type = Method.fromString(result_type_str) orelse return null;
 
         var response = Response{ .result_type = result_type };
 
-        if (utils.findJsonValue(json, "error")) |err_json| {
+        if (at[1]) |start| {
+            const err_json = json[start..utils.skipJsonValue(json, start).?];
             if (!std.mem.eql(u8, err_json, "null")) {
+                var err_at: [2]?usize = undefined;
+                if (!utils.findTopLevelFields(err_json, &.{ "code", "message" }, &err_at)) return null;
                 const code_str = utils.extractJsonString(err_json, "code") orelse return null;
                 const code = ErrorCode.fromString(code_str) orelse return null;
                 const message = utils.extractJsonString(err_json, "message") orelse "";
@@ -634,8 +639,10 @@ pub const Response = struct {
             }
         }
 
-        if (utils.findJsonValue(json, "result")) |result_json| {
+        if (at[2]) |start| {
+            const result_json = json[start..utils.skipJsonValue(json, start).?];
             if (!std.mem.eql(u8, result_json, "null")) {
+                if (result_json[0] != '{') return null;
                 const payment_result: ?PaymentResult = if (utils.extractJsonString(result_json, "preimage")) |preimage|
                     .{ .preimage = preimage, .fees_paid = utils.extractIntField(result_json, "fees_paid", u64) }
                 else
@@ -1266,4 +1273,22 @@ test "nip44 encrypt/decrypt response roundtrip" {
 
     try std.testing.expectEqual(Method.get_balance, result.response.?.result_type);
     try std.testing.expectEqual(@as(u64, 50000), result.response.?.result.?.get_balance.balance);
+}
+
+test "Response.parseJson rejects duplicate or malformed members" {
+    const bad = [_][]const u8{
+        \\{"result_type":"pay_invoice","error":{"code":"PAYMENT_FAILED","message":"x"},"error":null,"result":{"preimage":"abc"}}
+        ,
+        \\{"result_type":"pay_invoice","error":null,"result":{"preimage":"abc"},"result":{"preimage":"def"}}
+        ,
+        \\{"result_type":"pay_invoice","error":{"code":"PAYMENT_FAILED","code":"OTHER"},"result":null}
+        ,
+        \\{"result_type":"pay_invoice","error":"PAYMENT_FAILED","result":{"preimage":"abc"}}
+        ,
+        \\{"result_type":"get_balance","error":null,"result":7}
+        ,
+        \\{"result_type":"pay_invoice","error":{"code":"PAYMENT_FAILED"},"result":{"preimage":"abc"},}
+        ,
+    };
+    for (bad) |json| try std.testing.expect(Response.parseJson(json) == null);
 }
