@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `Filter.limit_val` is now `?u32` and `Filter.limit()` returns `?u32`, so a filter with `"limit": 0` is distinct from one with no limit. NIP-01 now requires relays to return no stored events for `limit: 0`. `serialize` emits `limit` whenever it is set, including 0. A negative `limit` is ignored.
+
+### Fixed
+
+- Parsing a filter no longer panics (ReleaseSafe, Debug) or invokes undefined behavior (ReleaseFast) on an out-of-range integer. A `limit` above `u32` max is clamped to it. A negative `COUNT` from a relay parses as 0.
+- `kinds` entries that are out of `i32` range or not integers are dropped, and an `ids`, `authors` or `kinds` array that is non-empty but has no usable entries now matches nothing instead of being treated as absent (which matched everything).
+- Negentropy `reconcile` rejects an unknown mode byte (previously a panic, or undefined behavior in ReleaseFast) and a varint that decodes to zero length (previously an infinite loop that pinned the calling thread).
+
 ## [0.3.7] - 2026-08-11
 
 ### Fixed

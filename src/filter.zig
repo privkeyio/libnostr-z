@@ -17,7 +17,7 @@ pub const Filter = struct {
     authors_bytes: ?[][32]u8 = null,
     since_val: i64 = 0,
     until_val: i64 = 0,
-    limit_val: i32 = 0,
+    limit_val: ?u32 = null,
     tag_filters: ?[]FilterTagEntry = null,
     search_str: ?[]const u8 = null,
     allocator: ?std.mem.Allocator = null,
@@ -146,7 +146,7 @@ pub const Filter = struct {
         return self.until_val;
     }
 
-    pub fn limit(self: *const Filter) i32 {
+    pub fn limit(self: *const Filter) ?u32 {
         return self.limit_val;
     }
 
@@ -218,10 +218,10 @@ pub const Filter = struct {
             try writer.print("\"until\":{d}", .{self.until_val});
         }
 
-        if (self.limit_val > 0) {
+        if (self.limit_val) |l| {
             if (!first) try writer.writeByte(',');
             first = false;
-            try writer.print("\"limit\":{d}", .{self.limit_val});
+            try writer.print("\"limit\":{d}", .{l});
         }
 
         if (self.tag_filters) |tag_list| {
@@ -542,7 +542,7 @@ test "Filter.clone creates independent copy" {
     try std.testing.expectEqual(@as(usize, 2), cloned.kinds_slice.?.len);
     try std.testing.expectEqual(@as(i32, 1), cloned.kinds_slice.?[0]);
     try std.testing.expectEqual(@as(i64, 1700000000), cloned.since_val);
-    try std.testing.expectEqual(@as(i32, 50), cloned.limit_val);
+    try std.testing.expectEqual(@as(?u32, 50), cloned.limit_val);
 
     try std.testing.expect(cloned.kinds_slice.?.ptr != original.kinds_slice.?.ptr);
     try std.testing.expect(cloned.ids_bytes.?.ptr != original.ids_bytes.?.ptr);
