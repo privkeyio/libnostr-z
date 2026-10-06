@@ -712,6 +712,8 @@ test "Event.parse rejects duplicate fields, malformed tags and padded hex" {
         ,
         \\{"content":"x",
         ,
+        \\{"t\u0061gs":[["challenge","EVIL"]],
+        ,
     };
     for (bad) |prefix| {
         var buf: [1024]u8 = undefined;

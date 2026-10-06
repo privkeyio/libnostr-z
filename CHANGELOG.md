@@ -9,13 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Event fields are now read only from the event's own top-level members. Previously each field was located by a substring search for its key, and the search used for the event ID hash differed from the ones used for tags, so extra members could carry decoy values: a decoy `"tags"` was read by `Auth.extractTags`, `Nip98Tags.extract` and the tag index while the signature still covered the real tags. A NIP-42 AUTH or NIP-98 event signed for another service could therefore be presented as one for this relay, and a third party could republish a signed event with altered `-`, `expiration`, `d` or `e` tags. All lookups now share one scanner (`utils.findTopLevelFields`) that walks only the top-level object, never looks inside strings or nested values, and rejects duplicate keys.
+- Event fields are now read only from the event's own top-level members. Previously each field was located by a substring search for its key, and the search used for the event ID hash differed from the ones used for tags, so extra members could carry decoy values: a decoy `"tags"` was read by `Auth.extractTags`, `Nip98Tags.extract` and the tag index while the signature still covered the real tags. A NIP-42 AUTH or NIP-98 event signed for another service could therefore be presented as one for this relay, and a third party could republish a signed event with altered `-`, `expiration`, `d` or `e` tags. Event parsing and the tag readers in `Auth`, `Nip98Tags`, `HttpAuth`, NIP-43 and the NIP-57 `relays` lookup now share one scanner (`utils.findTopLevelFields`) that walks only the top-level object, never looks inside strings or nested values, and rejects duplicate and escaped keys.
 
 ### Changed
 
 - `Event.parse` rejects malformed events it used to accept: duplicate known fields (`InvalidJson`), tags that are not an array of arrays of strings (`InvalidTags`), a non-string `content` (`InvalidContent`), hex fields with trailing characters, and non-integer `kind` or `created_at`.
-- `utils.findJsonValue`, `extractJsonString`, `findJsonFieldStart`, `extractHexField`, `extractIntField` and `TagIterator.init` search only the top level of the given JSON object and return null when a key is duplicated.
-- `TagIterator` is iterative rather than recursive, reports malformed input through `malformed`, and skips empty tags.
+- `utils.findJsonValue`, `extractJsonString`, `findJsonFieldStart`, `extractHexField`, `extractIntField` and `TagIterator.init` search only the top level of the given JSON object. They return null when the input is not a well-formed object, when the key is duplicated, or when any key contains an escape.
+- `TagIterator` is iterative rather than recursive, skips empty tags, and stops at the first malformed tag (it used to skip it and continue), setting `malformed`.
+- `Auth.extractTags`, `Nip98Tags.extract` and `HttpAuth.extractTags` return an empty result when any tag is malformed, and the first two ignore tags whose value is an empty string.
+- An event's `d` tag longer than 250 bytes is now kept. It used to become null, so relays keyed every such addressable event under an empty `d`; events stored that way keep their old key and are not replaced by newer versions.
 - **Breaking:** `Filter.limit_val` is now `?u32` and `Filter.limit()` returns `?u32`, so a filter with `"limit": 0` is distinct from one with no limit. NIP-01 now requires relays to return no stored events for `limit: 0`. `serialize` emits `limit` whenever it is set, including 0. A negative `limit` is ignored.
 
 ### Fixed

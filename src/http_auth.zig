@@ -64,13 +64,14 @@ pub const HttpAuth = struct {
 
         while (iter.next()) |tag| {
             if (std.mem.eql(u8, tag.name, "u")) {
-                result.url = utils.findStringInJson(json, tag.value);
+                result.url = tag.value;
             } else if (std.mem.eql(u8, tag.name, "method")) {
-                result.method = utils.findStringInJson(json, tag.value);
+                result.method = tag.value;
             } else if (std.mem.eql(u8, tag.name, "payload")) {
-                result.payload = utils.findStringInJson(json, tag.value);
+                result.payload = tag.value;
             }
         }
+        if (iter.malformed) return .{};
 
         return result;
     }

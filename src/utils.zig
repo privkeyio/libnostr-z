@@ -188,8 +188,8 @@ pub fn skipJsonValue(json: []const u8, start: usize) ?usize {
 /// key is absent). Nested objects and string contents are never searched, so a
 /// key can only be found where a JSON parser would find it. Returns false if
 /// the object is malformed or any of `keys` appears more than once, since
-/// parsers disagree on which duplicate wins. Keys written with escapes never
-/// match.
+/// parsers disagree on which duplicate wins, or if any key contains an escape,
+/// since it could decode to a duplicate.
 pub fn findTopLevelFields(json: []const u8, keys: []const []const u8, out: []?usize) bool {
     std.debug.assert(keys.len == out.len);
     @memset(out, null);
@@ -203,6 +203,9 @@ pub fn findTopLevelFields(json: []const u8, keys: []const []const u8, out: []?us
         if (pos >= json.len or json[pos] != '"') return false;
         const key_end = skipJsonValue(json, pos) orelse return false;
         const name = json[pos + 1 .. key_end - 1];
+        // An escaped key could decode to one of `keys` (or duplicate it) for
+        // other parsers while comparing unequal here.
+        if (std.mem.indexOfScalar(u8, name, '\\') != null) return false;
 
         pos = skipWs(json, key_end);
         if (pos >= json.len or json[pos] != ':') return false;
@@ -507,4 +510,58 @@ test "searchMatches" {
     try std.testing.expect(searchMatches("hello world", "Hello World Today"));
     try std.testing.expect(!searchMatches("hello xyz", "Hello World Today"));
     try std.testing.expect(searchMatches("bitcoin nostr", "I love Bitcoin and Nostr!"));
+}
+
+test "findTopLevelFields only sees top-level members" {
+    var at: [2]?usize = undefined;
+    const json =
+        \\{"a":"tags","b":{"tags":[1]},"c":["tags",{"tags":2}],"d":"x\"y\\","tags":[["x"]],"e":-1}
+    ;
+    try std.testing.expect(findTopLevelFields(json, &.{ "tags", "e" }, &at));
+    try std.testing.expectEqualStrings("[[\"x\"]]", json[at[0].?..skipJsonValue(json, at[0].?).?]);
+    try std.testing.expectEqualStrings("-1", json[at[1].?..skipJsonValue(json, at[1].?).?]);
+
+    try std.testing.expect(findTopLevelFields("{}", &.{ "tags", "e" }, &at));
+    try std.testing.expectEqual(@as(?usize, null), at[0]);
+    try std.testing.expect(findTopLevelFields(" { \"tags\" : [ ] } ", &.{ "tags", "e" }, &at));
+    try std.testing.expect(at[0] != null);
+}
+
+test "findTopLevelFields rejects malformed objects, duplicates and escaped keys" {
+    var at: [1]?usize = undefined;
+    const bad = [_][]const u8{
+        "",
+        "[]",
+        "{",
+        "{\"tags\"",
+        "{\"tags\":",
+        "{\"tags\":[}",
+        "{\"tags\":[1,}",
+        "{\"tags\":\"x}",
+        "{\"tags\":\"x\\\"}",
+        "{\"tags\":[],}",
+        "{\"tags\":[] \"a\":1}",
+        "{\"tags\":1:2}",
+        "{tags:[]}",
+        "{\"tags\":[],\"tags\":[]}",
+        "{\"t\\u0061gs\":[]}",
+        "{\"a\\\"\":1,\"tags\":[]}",
+    };
+    for (bad) |json| try std.testing.expect(!findTopLevelFields(json, &.{"tags"}, &at));
+    try std.testing.expect(findTopLevelFields("{\"a\":1,\"a\":2}", &.{"tags"}, &at));
+}
+
+test "TagIterator reports malformed tags" {
+    const cases = [_][]const u8{
+        "{\"tags\":[[\"e\",1]]}",
+        "{\"tags\":[\"e\"]}",
+        "{\"tags\":[[\"e\"],]}",
+        "{\"tags\":[[\"e\"][\"p\"]]}",
+        "{\"tags\":[[\"e\",]]}",
+    };
+    for (cases) |json| {
+        var iter = TagIterator.init(json, "tags").?;
+        while (iter.next()) |_| {}
+        try std.testing.expect(iter.malformed);
+    }
 }
