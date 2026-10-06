@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-06
+
+Builds with Zig 0.17 as well as 0.16, and finishes the field-confusion fix from 0.4.0 in the client-side NIP-17, NIP-28, NIP-57, NWC and CLINK helpers. Some of their public types change, so this is a minor version bump.
+
 ### Changed
 
 - Builds with Zig 0.17.0 as well as 0.16.0. C headers are translated through `b.addTranslateC` modules (`noscrypt_c`, `openssl_c`) instead of `@cImport`, which 0.17 removes, and array repetition (`**`) gives way to `@splat`. CI tests both compiler versions.
