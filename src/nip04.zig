@@ -6,9 +6,7 @@
 const std = @import("std");
 const Aes256 = std.crypto.core.aes.Aes256;
 
-const nc = @cImport({
-    @cInclude("noscrypt.h");
-});
+const nc = @import("noscrypt_c");
 
 const NC_SUCCESS: i64 = 0;
 const BLOCK_SIZE: usize = 16;
@@ -250,7 +248,7 @@ test "encrypt and decrypt long message" {
     try crypto.getPublicKey(&sk1, &pk1);
     try crypto.getPublicKey(&sk2, &pk2);
 
-    const plaintext = "A" ** 1000;
+    const plaintext: []const u8 = &@as([1000]u8, @splat('A'));
     const encrypted = try encrypt(&sk1, &pk2, plaintext, allocator);
     defer allocator.free(encrypted);
 
@@ -339,5 +337,5 @@ test "interoperability with go-nostr large payload" {
     const decrypted = try decrypt(&sk2, &pk1, ciphertext, allocator);
     defer allocator.free(decrypted);
 
-    try std.testing.expectEqualStrings("z" ** 800, decrypted);
+    try std.testing.expectEqualStrings(&@as([800]u8, @splat('z')), decrypted);
 }

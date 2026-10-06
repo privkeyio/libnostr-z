@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Builds with Zig 0.17.0 as well as 0.16.0. C headers are translated through `b.addTranslateC` modules (`noscrypt_c`, `openssl_c`) instead of `@cImport`, which 0.17 removes, and array repetition (`**`) gives way to `@splat`. CI tests both compiler versions.
 - **Breaking:** NIP-17 `ReceiverIterator` and `RelayIterator` and NIP-28 `ETagIterator` hold a `TagIterator` (`tags`) instead of `json`/`pos`. NIP-57 `ValidationError` gains `InvalidTags`, and `validateServer` returns it for missing or malformed tags (missing tags used to pass). NIP-17 hex tag values must be exactly 64 characters (the first 64 of a longer value were accepted), and `RelayIterator` skips an empty relay value instead of stopping.
 
 ### Security

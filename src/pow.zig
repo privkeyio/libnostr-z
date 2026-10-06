@@ -77,7 +77,7 @@ pub fn checkCommittedDifficulty(id_bytes: *const [32]u8, json: []const u8, min_d
 }
 
 test "countLeadingZeroBits - all zeros" {
-    const hash = [_]u8{0} ** 32;
+    const hash: [32]u8 = @splat(0);
     try std.testing.expectEqual(@as(u16, 256), countLeadingZeroBits(&hash));
 }
 

@@ -170,7 +170,7 @@ pub const Frame = struct {
             offset = 10;
         }
 
-        var masking_key = [_]u8{0} ** 4;
+        var masking_key: [4]u8 = @splat(0);
         if (masked) {
             masking_key = maskingKey();
             @memcpy(buf[offset .. offset + 4], &masking_key);

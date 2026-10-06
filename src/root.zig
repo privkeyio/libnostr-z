@@ -145,13 +145,14 @@ pub const hex = @import("hex.zig");
 // recursive variant; this reimplements it for 0.16.)
 fn refAllDeclsRecursive(comptime T: type) void {
     inline for (comptime std.meta.declarations(T)) |decl| {
-        if (@TypeOf(@field(T, decl.name)) == type) {
-            switch (@typeInfo(@field(T, decl.name))) {
-                .@"struct", .@"enum", .@"union", .@"opaque" => refAllDeclsRecursive(@field(T, decl.name)),
+        const name = if (comptime @import("builtin").zig_version.minor < 17) decl.name else decl;
+        if (@TypeOf(@field(T, name)) == type) {
+            switch (@typeInfo(@field(T, name))) {
+                .@"struct", .@"enum", .@"union", .@"opaque" => refAllDeclsRecursive(@field(T, name)),
                 else => {},
             }
         }
-        _ = &@field(T, decl.name);
+        _ = &@field(T, name);
     }
 }
 
