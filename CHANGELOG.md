@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-05
+
+Fixes a NIP-42 / NIP-98 authentication bypass and several ways a remote peer could crash or hang a relay, and makes `limit: 0` distinguishable as NIP-01 now requires. `Filter.limit()` changes type, so this is a minor version bump.
+
 ### Added
 
 - NIP-86 `Method` gains `unbanpubkey`, `unallowpubkey`, `unbanevent`, `unallowevent`, `listallowedevents` and `listdisallowedkinds`, matching the current spec.
-
-### Security
-
-- Event fields are now read only from the event's own top-level members. Previously each field was located by a substring search for its key, and the search used for the event ID hash differed from the ones used for tags, so extra members could carry decoy values: a decoy `"tags"` was read by `Auth.extractTags`, `Nip98Tags.extract` and the tag index while the signature still covered the real tags. A NIP-42 AUTH or NIP-98 event signed for another service could therefore be presented as one for this relay, and a third party could republish a signed event with altered `-`, `expiration`, `d` or `e` tags. Event parsing and the tag readers in `Auth`, `Nip98Tags`, `HttpAuth`, NIP-43 and the NIP-57 `relays` lookup now share one scanner (`utils.findTopLevelFields`) that walks only the top-level object, never looks inside strings or nested values, and rejects duplicate and escaped keys.
 
 ### Changed
 
@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parsing a filter no longer panics (ReleaseSafe, Debug) or invokes undefined behavior (ReleaseFast) on an out-of-range integer. A `limit` above `u32` max is clamped to it. A negative `COUNT` from a relay parses as 0.
 - `kinds` entries that are out of `i32` range or not integers are dropped, and an `ids`, `authors` or `kinds` array that is non-empty but has no usable entries now matches nothing instead of being treated as absent (which matched everything).
 - Negentropy `reconcile` rejects an unknown mode byte (previously a panic, or undefined behavior in ReleaseFast) and a varint that decodes to zero length (previously an infinite loop that pinned the calling thread).
+
+### Security
+
+- Event fields are now read only from the event's own top-level members. Previously each field was located by a substring search for its key, and the search used for the event ID hash differed from the ones used for tags, so extra members could carry decoy values: a decoy `"tags"` was read by `Auth.extractTags`, `Nip98Tags.extract` and the tag index while the signature still covered the real tags. A NIP-42 AUTH or NIP-98 event signed for another service could therefore be presented as one for this relay, and a third party could republish a signed event with altered `-`, `expiration`, `d` or `e` tags. Event parsing and the tag readers in `Auth`, `Nip98Tags`, `HttpAuth`, NIP-43 and the NIP-57 `relays` lookup now share one scanner (`utils.findTopLevelFields`) that walks only the top-level object, never looks inside strings or nested values, and rejects duplicate and escaped keys.
 
 ## [0.3.7] - 2026-08-11
 
