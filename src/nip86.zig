@@ -5,12 +5,17 @@ const utils = @import("utils.zig");
 pub const Method = enum {
     supportedmethods,
     banpubkey,
+    unbanpubkey,
     listbannedpubkeys,
     allowpubkey,
+    unallowpubkey,
     listallowedpubkeys,
     banevent,
+    unbanevent,
     allowevent,
+    unallowevent,
     listbannedevents,
+    listallowedevents,
     listeventsneedingmoderation,
     changerelayname,
     changerelaydescription,
@@ -18,6 +23,7 @@ pub const Method = enum {
     allowkind,
     disallowkind,
     listallowedkinds,
+    listdisallowedkinds,
     blockip,
     unblockip,
     listblockedips,
@@ -32,57 +38,17 @@ pub const Request = struct {
     params: []const u8,
 
     pub fn parse(body: []const u8) ?Request {
-        const method_key = "\"method\"";
-        const method_idx = std.mem.indexOf(u8, body, method_key) orelse return null;
-        var pos = method_idx + method_key.len;
+        var at: [2]?usize = undefined;
+        if (!utils.findTopLevelFields(body, &.{ "method", "params" }, &at)) return null;
+        const method_start = at[0] orelse return null;
+        if (body[method_start] != '"') return null;
+        const method_end = utils.skipJsonValue(body, method_start) orelse return null;
+        const method = body[method_start + 1 .. method_end - 1];
 
-        while (pos < body.len and (body[pos] == ':' or body[pos] == ' ' or body[pos] == '\t')) pos += 1;
-        if (pos >= body.len or body[pos] != '"') return null;
-        pos += 1;
-
-        const method_start = pos;
-        while (pos < body.len) {
-            if (body[pos] == '\\' and pos + 1 < body.len) {
-                pos += 2;
-                continue;
-            }
-            if (body[pos] == '"') break;
-            pos += 1;
-        }
-        if (pos >= body.len) return null;
-        const method = body[method_start..pos];
-
-        const params_key = "\"params\"";
-        const params_idx = std.mem.indexOf(u8, body, params_key) orelse return Request{ .method = method, .params = "[]" };
-        pos = params_idx + params_key.len;
-
-        while (pos < body.len and (body[pos] == ':' or body[pos] == ' ' or body[pos] == '\t')) pos += 1;
-        if (pos >= body.len or body[pos] != '[') return Request{ .method = method, .params = "[]" };
-
-        const params_start = pos;
-        var depth: i32 = 0;
-        var in_string = false;
-        while (pos < body.len) {
-            if (body[pos] == '\\' and in_string and pos + 1 < body.len) {
-                pos += 2;
-                continue;
-            }
-            if (body[pos] == '"') {
-                in_string = !in_string;
-            } else if (!in_string) {
-                if (body[pos] == '[') depth += 1;
-                if (body[pos] == ']') {
-                    depth -= 1;
-                    if (depth == 0) {
-                        pos += 1;
-                        break;
-                    }
-                }
-            }
-            pos += 1;
-        }
-
-        return Request{ .method = method, .params = body[params_start..pos] };
+        const params_start = at[1] orelse return Request{ .method = method, .params = "[]" };
+        if (body[params_start] != '[') return Request{ .method = method, .params = "[]" };
+        const params_end = utils.skipJsonValue(body, params_start) orelse return null;
+        return Request{ .method = method, .params = body[params_start..params_end] };
     }
 
     pub fn getMethod(self: Request) ?Method {
@@ -326,6 +292,22 @@ test "Request.parse" {
     const req = Request.parse(body).?;
     try std.testing.expectEqualStrings("banpubkey", req.method);
     try std.testing.expectEqualStrings("[\"abc123\",\"spam\"]", req.params);
+}
+
+test "Request.parse reads only top-level members" {
+    const req = Request.parse(
+        \\{"params":["\"method\":\"banpubkey\""],"x":{"method":"banpubkey"},"method":"listbannedpubkeys"}
+    ).?;
+    try std.testing.expectEqualStrings("listbannedpubkeys", req.method);
+    try std.testing.expectEqual(@as(?Method, .listbannedpubkeys), req.getMethod());
+    try std.testing.expectEqual(@as(?Request, null), Request.parse("{\"method\":\"a\",\"method\":\"b\"}"));
+    try std.testing.expectEqual(@as(?Request, null), Request.parse("{\"params\":[]}"));
+}
+
+test "Method covers the NIP-86 ban and allow lifecycle" {
+    for ([_][]const u8{ "unbanpubkey", "unallowpubkey", "unbanevent", "unallowevent", "listallowedevents", "listdisallowedkinds" }) |name| {
+        try std.testing.expect(Method.fromString(name) != null);
+    }
 }
 
 test "Request.parse no params" {
