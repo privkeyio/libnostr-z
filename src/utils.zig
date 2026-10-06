@@ -42,72 +42,10 @@ pub fn writeJsonEscapedHash(hasher: *std.crypto.hash.sha2.Sha256, str: []const u
 }
 
 pub fn findJsonValue(json: []const u8, key: []const u8) ?[]const u8 {
-    var search_buf: [68]u8 = undefined;
-    const search = std.fmt.bufPrint(&search_buf, "\"{s}\":", .{key}) catch return null;
-
-    if (std.mem.indexOf(u8, json, search)) |pos| {
-        var start = pos + search.len;
-
-        while (start < json.len and (json[start] == ' ' or json[start] == '\t' or json[start] == '\n' or json[start] == '\r')) {
-            start += 1;
-        }
-
-        if (start >= json.len) return null;
-
-        const first = json[start];
-
-        if (first == '"') {
-            var end = start + 1;
-            var escape = false;
-            while (end < json.len) {
-                const c = json[end];
-                if (escape) {
-                    escape = false;
-                } else if (c == '\\') {
-                    escape = true;
-                } else if (c == '"') {
-                    return json[start .. end + 1];
-                }
-                end += 1;
-            }
-            return null;
-        }
-
-        if (first == '[' or first == '{') {
-            const close_char: u8 = if (first == '[') ']' else '}';
-            var depth: i32 = 0;
-            var end = start;
-            var in_string = false;
-            var escape = false;
-
-            for (json[start..], 0..) |c, i| {
-                if (escape) {
-                    escape = false;
-                    continue;
-                }
-                if (c == '\\' and in_string) {
-                    escape = true;
-                    continue;
-                }
-                if (c == '"' and !escape) {
-                    in_string = !in_string;
-                    continue;
-                }
-                if (!in_string) {
-                    if (c == first) depth += 1;
-                    if (c == close_char) {
-                        depth -= 1;
-                        if (depth == 0) {
-                            end = start + i + 1;
-                            break;
-                        }
-                    }
-                }
-            }
-            return json[start..end];
-        }
-    }
-    return null;
+    const start = findJsonFieldStart(json, key) orelse return null;
+    if (json[start] != '"' and json[start] != '[' and json[start] != '{') return null;
+    const end = skipJsonValue(json, start) orelse return null;
+    return json[start..end];
 }
 
 pub fn findArrayElement(json: []const u8, index: usize) ?[]const u8 {
@@ -176,32 +114,10 @@ pub fn findArrayElement(json: []const u8, index: usize) ?[]const u8 {
 }
 
 pub fn extractJsonString(json: []const u8, key: []const u8) ?[]const u8 {
-    var search_buf: [68]u8 = undefined;
-    const search = std.fmt.bufPrint(&search_buf, "\"{s}\":", .{key}) catch return null;
-
-    const key_pos = std.mem.indexOf(u8, json, search) orelse return null;
-    var pos = key_pos + search.len;
-
-    while (pos < json.len and (json[pos] == ' ' or json[pos] == '\t' or json[pos] == '\n' or json[pos] == '\r')) : (pos += 1) {}
-
-    if (pos >= json.len or json[pos] != '"') return null;
-    pos += 1;
-
-    const start = pos;
-    var escape = false;
-
-    while (pos < json.len) {
-        const c = json[pos];
-        if (escape) {
-            escape = false;
-        } else if (c == '\\') {
-            escape = true;
-        } else if (c == '"') {
-            return json[start..pos];
-        }
-        pos += 1;
-    }
-    return null;
+    const start = findJsonFieldStart(json, key) orelse return null;
+    if (json[start] != '"') return null;
+    const end = skipJsonValue(json, start) orelse return null;
+    return json[start + 1 .. end - 1];
 }
 
 pub fn findStringInJson(json: []const u8, needle: []const u8) ?[]const u8 {
@@ -214,16 +130,104 @@ pub fn findStringInJson(json: []const u8, needle: []const u8) ?[]const u8 {
     return json[pos + 1 .. pos + 1 + needle.len];
 }
 
+fn skipWs(json: []const u8, start: usize) usize {
+    var pos = start;
+    while (pos < json.len and (json[pos] == ' ' or json[pos] == '\n' or json[pos] == '\r' or json[pos] == '\t')) : (pos += 1) {}
+    return pos;
+}
+
+/// Returns the index just past the JSON value starting at `start`, or null if
+/// it is malformed or truncated. Strings and nesting are tracked so that
+/// brackets and quotes inside strings are never mistaken for structure.
+pub fn skipJsonValue(json: []const u8, start: usize) ?usize {
+    if (start >= json.len) return null;
+    switch (json[start]) {
+        '"' => {
+            var pos = start + 1;
+            while (pos < json.len) : (pos += 1) {
+                switch (json[pos]) {
+                    '\\' => pos += 1,
+                    '"' => return pos + 1,
+                    else => {},
+                }
+            }
+            return null;
+        },
+        '[', '{' => {
+            var depth: usize = 0;
+            var pos = start;
+            while (pos < json.len) : (pos += 1) {
+                switch (json[pos]) {
+                    '"' => pos = (skipJsonValue(json, pos) orelse return null) - 1,
+                    '[', '{' => depth += 1,
+                    ']', '}' => {
+                        depth -= 1;
+                        if (depth == 0) return pos + 1;
+                    },
+                    else => {},
+                }
+            }
+            return null;
+        },
+        else => {
+            var pos = start;
+            while (pos < json.len) : (pos += 1) {
+                switch (json[pos]) {
+                    ',', '}', ']', ' ', '\n', '\r', '\t' => break,
+                    '"', '[', '{', ':' => return null,
+                    else => {},
+                }
+            }
+            return if (pos == start) null else pos;
+        },
+    }
+}
+
+/// Locates the values of `keys` among the top-level members of the JSON
+/// object `json`, writing each value's start index into `out` (null when the
+/// key is absent). Nested objects and string contents are never searched, so a
+/// key can only be found where a JSON parser would find it. Returns false if
+/// the object is malformed or any of `keys` appears more than once, since
+/// parsers disagree on which duplicate wins. Keys written with escapes never
+/// match.
+pub fn findTopLevelFields(json: []const u8, keys: []const []const u8, out: []?usize) bool {
+    std.debug.assert(keys.len == out.len);
+    @memset(out, null);
+
+    var pos = skipWs(json, 0);
+    if (pos >= json.len or json[pos] != '{') return false;
+    pos = skipWs(json, pos + 1);
+    if (pos < json.len and json[pos] == '}') return true;
+
+    while (true) {
+        if (pos >= json.len or json[pos] != '"') return false;
+        const key_end = skipJsonValue(json, pos) orelse return false;
+        const name = json[pos + 1 .. key_end - 1];
+
+        pos = skipWs(json, key_end);
+        if (pos >= json.len or json[pos] != ':') return false;
+        const value_start = skipWs(json, pos + 1);
+        const value_end = skipJsonValue(json, value_start) orelse return false;
+
+        for (keys, out) |k, *slot| {
+            if (std.mem.eql(u8, name, k)) {
+                if (slot.* != null) return false;
+                slot.* = value_start;
+            }
+        }
+
+        pos = skipWs(json, value_end);
+        if (pos >= json.len) return false;
+        if (json[pos] == '}') return true;
+        if (json[pos] != ',') return false;
+        pos = skipWs(json, pos + 1);
+    }
+}
+
 pub fn findJsonFieldStart(json: []const u8, key: []const u8) ?usize {
-    var buf: [128]u8 = undefined;
-    const needle = std.fmt.bufPrint(&buf, "\"{s}\"", .{key}) catch return null;
-    var pos = std.mem.indexOf(u8, json, needle) orelse return null;
-    pos += needle.len;
-    while (pos < json.len and (json[pos] == ' ' or json[pos] == '\n' or json[pos] == '\r' or json[pos] == '\t')) : (pos += 1) {}
-    if (pos >= json.len or json[pos] != ':') return null;
-    pos += 1;
-    while (pos < json.len and (json[pos] == ' ' or json[pos] == '\n' or json[pos] == '\r' or json[pos] == '\t')) : (pos += 1) {}
-    return if (pos < json.len) pos else null;
+    var out: [1]?usize = undefined;
+    if (!findTopLevelFields(json, &.{key}, &out)) return null;
+    return out[0];
 }
 
 pub fn findStringEnd(json: []const u8, start: usize) ?usize {
@@ -258,92 +262,90 @@ pub fn findStringEnd(json: []const u8, start: usize) ?usize {
 }
 
 pub fn extractHexField(json: []const u8, key: []const u8, comptime len: usize) ?[len]u8 {
-    const start = findJsonFieldStart(json, key) orelse return null;
-    if (start >= json.len or json[start] != '"') return null;
-    const hex_start = start + 1;
-    const hex_len = len * 2;
-    if (hex_start + hex_len > json.len) return null;
-    const hex_str = json[hex_start .. hex_start + hex_len];
+    return hexFieldAt(json, findJsonFieldStart(json, key) orelse return null, len);
+}
+
+pub fn hexFieldAt(json: []const u8, start: usize, comptime len: usize) ?[len]u8 {
+    const end = skipJsonValue(json, start) orelse return null;
+    if (json[start] != '"' or end - start != len * 2 + 2) return null;
     var result: [len]u8 = undefined;
-    hex.decode(hex_str, &result) catch return null;
+    hex.decode(json[start + 1 .. end - 1], &result) catch return null;
     return result;
 }
 
 pub fn extractIntField(json: []const u8, key: []const u8, comptime T: type) ?T {
-    const start = findJsonFieldStart(json, key) orelse return null;
-    var end = start;
-    if (end < json.len and json[end] == '-') end += 1;
-    while (end < json.len and json[end] >= '0' and json[end] <= '9') : (end += 1) {}
-    if (end == start) return null;
-    return std.fmt.parseInt(T, json[start..end], 10) catch null;
+    return intFieldAt(json, findJsonFieldStart(json, key) orelse return null, T);
+}
+
+pub fn intFieldAt(json: []const u8, start: usize, comptime T: type) ?T {
+    const end = skipJsonValue(json, start) orelse return null;
+    const digits = json[start..end];
+    const unsigned = if (digits.len > 0 and digits[0] == '-') digits[1..] else digits;
+    if (unsigned.len == 0) return null;
+    for (unsigned) |c| if (c < '0' or c > '9') return null;
+    return std.fmt.parseInt(T, digits, 10) catch null;
 }
 
 pub const TagIterator = struct {
     json: []const u8,
     pos: usize,
+    started: bool = false,
+    /// Set when iteration stopped at something other than an array of arrays
+    /// of strings. Callers that validate events must reject it.
+    malformed: bool = false,
+
+    pub const Tag = struct { name: []const u8, value: []const u8 };
 
     pub fn init(json: []const u8, key: []const u8) ?TagIterator {
-        const start = findJsonFieldStart(json, key) orelse return null;
+        return initAt(json, findJsonFieldStart(json, key) orelse return null);
+    }
+
+    pub fn initAt(json: []const u8, start: usize) ?TagIterator {
         if (start >= json.len or json[start] != '[') return null;
-        return .{ .json = json, .pos = start + 1 };
+        const end = skipJsonValue(json, start) orelse return null;
+        return .{ .json = json[0..end], .pos = start + 1 };
     }
 
-    pub fn next(self: *TagIterator) ?struct { name: []const u8, value: []const u8 } {
-        while (self.pos < self.json.len and (self.json[self.pos] == ' ' or self.json[self.pos] == ',' or self.json[self.pos] == '\n' or self.json[self.pos] == '\r' or self.json[self.pos] == '\t')) : (self.pos += 1) {}
-        if (self.pos >= self.json.len or self.json[self.pos] == ']') return null;
-        if (self.json[self.pos] != '[') return null;
-        self.pos += 1;
+    /// Yields each tag's first two strings. Empty tags are skipped.
+    pub fn next(self: *TagIterator) ?Tag {
+        while (true) {
+            self.pos = skipWs(self.json, self.pos);
+            if (self.pos >= self.json.len) return self.fail();
+            if (self.json[self.pos] == ']') return null;
+            if (self.started) {
+                if (self.json[self.pos] != ',') return self.fail();
+                self.pos = skipWs(self.json, self.pos + 1);
+            }
+            self.started = true;
+            if (self.pos >= self.json.len or self.json[self.pos] != '[') return self.fail();
+            self.pos = skipWs(self.json, self.pos + 1);
 
-        while (self.pos < self.json.len and self.json[self.pos] != '"' and self.json[self.pos] != ']') : (self.pos += 1) {}
-        if (self.pos >= self.json.len or self.json[self.pos] != '"') {
-            self.skipToNextTag();
-            return self.next();
-        }
-        self.pos += 1;
-        const name_start = self.pos;
-        const name_end = findStringEnd(self.json, name_start) orelse {
-            self.skipToNextTag();
-            return self.next();
-        };
-        const name = self.json[name_start..name_end];
-        self.pos = name_end + 1;
-
-        while (self.pos < self.json.len and self.json[self.pos] != '"' and self.json[self.pos] != ']') : (self.pos += 1) {}
-        if (self.pos >= self.json.len or self.json[self.pos] == ']') {
-            self.skipToNextTag();
-            return .{ .name = name, .value = "" };
-        }
-        self.pos += 1;
-        const value_start = self.pos;
-        const value_end = findStringEnd(self.json, value_start) orelse {
-            self.skipToNextTag();
-            return .{ .name = name, .value = "" };
-        };
-        const value = self.json[value_start..value_end];
-        self.pos = value_end + 1;
-        self.skipToNextTag();
-        return .{ .name = name, .value = value };
-    }
-
-    fn skipToNextTag(self: *TagIterator) void {
-        var depth: i32 = 1;
-        var in_string = false;
-        var escaped = false;
-        while (self.pos < self.json.len and depth > 0) {
-            const c = self.json[self.pos];
-            if (escaped) {
-                escaped = false;
-            } else if (c == '\\' and in_string) {
-                escaped = true;
-            } else if (c == '"') {
-                in_string = !in_string;
-            } else if (!in_string) {
-                if (c == '[') depth += 1 else if (c == ']') depth -= 1;
+            var tag = Tag{ .name = "", .value = "" };
+            var count: usize = 0;
+            while (true) {
+                if (self.pos >= self.json.len) return self.fail();
+                if (self.json[self.pos] == ']' and count == 0) break;
+                if (self.json[self.pos] != '"') return self.fail();
+                const end = skipJsonValue(self.json, self.pos) orelse return self.fail();
+                const str = self.json[self.pos + 1 .. end - 1];
+                if (count == 0) tag.name = str else if (count == 1) tag.value = str;
+                count += 1;
+                self.pos = skipWs(self.json, end);
+                if (self.pos >= self.json.len) return self.fail();
+                if (self.json[self.pos] == ']') break;
+                if (self.json[self.pos] != ',') return self.fail();
+                self.pos = skipWs(self.json, self.pos + 1);
             }
             self.pos += 1;
+            if (count > 0) return tag;
         }
     }
 
+    fn fail(self: *TagIterator) ?Tag {
+        self.malformed = true;
+        self.pos = self.json.len;
+        return null;
+    }
 };
 
 pub fn containsInsensitive(haystack: []const u8, needle: []const u8) bool {
