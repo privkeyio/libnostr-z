@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - StringZilla is pinned by commit (`7ca3964`, the commit tag v4.5.1 points to) instead of by tag. The content hash is unchanged.
+- NIP-39 `getExpectedProofText` returns the single verification text the NIP now uses for every claim type (`Verifying that I control the following Nostr public key: <npub>`, unquoted). Twitter, Mastodon and Telegram previously used older per-platform wording.
+
+### Added
+
+- NIP-39 `bluesky` and `discord` claim types, with proof URLs from `getProofUrl`. `Platform` gains `.bluesky` and `.discord`, so exhaustive switches over it need the new cases.
+- NIP-39 `proofMentionsPubkey`, which accepts any proof text containing the user's npub as a whole word (in either case), as the NIP asks verifiers to do for proofs written under earlier wording. It does not check who published the proof, which stays the caller's job.
+- NIP-39 `IDENTITY_KIND` (10011). `IdentityList.fromEvent` reads kind 10011, where the NIP now puts `i` tags, as well as kind 0.
+
+### Security
+
+- NIP-39 `getProofUrl` returns null when an identity or proof holds characters the platform does not use, such as `/`, `..`, `?`, `@`, `:` or `\`. A crafted proof like `../../mallory/...` could otherwise point a GitHub, Twitter, Telegram or Bluesky URL at another account's post, and a Mastodon identity could carry a port, userinfo, an IP address or a host with no dot.
 
 ### Fixed
 
