@@ -437,6 +437,7 @@ pub const RelayMsgParsed = struct {
     success: bool = false,
     is_duplicate: bool = false,
     is_rate_limited: bool = false,
+    retry_after_ms: ?u32 = null,
     count_val: ?u64 = null,
 
     pub fn parse(json: []const u8, allocator: std.mem.Allocator) !RelayMsgParsed {
@@ -469,11 +470,16 @@ pub const RelayMsgParsed = struct {
                 if (std.mem.indexOf(u8, reason, "rate-limit") != null) {
                     msg.is_rate_limited = true;
                 }
+                if (!msg.success and arr.len > 4) msg.retry_after_ms = parseRetryAfter(reason, arr[4]);
             }
         } else if (std.mem.eql(u8, type_str, "EOSE")) {
             msg.msg_type = .eose;
         } else if (std.mem.eql(u8, type_str, "CLOSED")) {
             msg.msg_type = .closed;
+            if (arr.len > 2 and arr[2] == .string) {
+                if (std.mem.indexOf(u8, arr[2].string, "rate-limit") != null) msg.is_rate_limited = true;
+                if (arr.len > 3) msg.retry_after_ms = parseRetryAfter(arr[2].string, arr[3]);
+            }
         } else if (std.mem.eql(u8, type_str, "NOTICE")) {
             msg.msg_type = .notice;
         } else if (std.mem.eql(u8, type_str, "AUTH")) {
@@ -492,6 +498,17 @@ pub const RelayMsgParsed = struct {
         return msg;
     }
 };
+
+// NIP-01: the rate-limited params is a positive decimal with no leading zero, in milliseconds.
+// The relay is untrusted, so values past u32 (about 49 days) are dropped rather than kept.
+fn parseRetryAfter(reason: []const u8, params: std.json.Value) ?u32 {
+    if (!std.mem.startsWith(u8, reason, "rate-limited:")) return null;
+    if (params != .string) return null;
+    const p = params.string;
+    if (p.len == 0 or p[0] == '0') return null;
+    for (p) |c| if (!std.ascii.isDigit(c)) return null;
+    return std.fmt.parseInt(u32, p, 10) catch null;
+}
 
 pub const RelayMsg = struct {
     pub fn event(sub_id: []const u8, ev: *const Event, buf: []u8) ![]u8 {
@@ -512,6 +529,11 @@ pub const RelayMsg = struct {
     }
 
     pub fn ok(event_id: *const [32]u8, success: bool, message: []const u8, buf: []u8) ![]u8 {
+        return okWithParams(event_id, success, message, null, buf);
+    }
+
+    // NIP-01: ["OK", <event_id>, <true|false>, <message>, <?params>].
+    pub fn okWithParams(event_id: *const [32]u8, success: bool, message: []const u8, params: ?[]const u8, buf: []u8) ![]u8 {
         var fbs = std.Io.Writer.fixed(buf);
         const writer = &fbs;
 
@@ -524,17 +546,10 @@ pub const RelayMsg = struct {
         try writer.writeAll("\",");
         try writer.writeAll(if (success) "true" else "false");
         try writer.writeAll(",\"");
-
-        for (message) |c| {
-            switch (c) {
-                '"' => try writer.writeAll("\\\""),
-                '\\' => try writer.writeAll("\\\\"),
-                '\n' => try writer.writeAll("\\n"),
-                else => try writer.writeByte(c),
-            }
-        }
-
-        try writer.writeAll("\"]");
+        try utils.writeJsonEscaped(writer, message);
+        try writer.writeByte('"');
+        try writeParams(writer, params);
+        try writer.writeByte(']');
 
         return fbs.buffered();
     }
@@ -551,25 +566,30 @@ pub const RelayMsg = struct {
     }
 
     pub fn closed(sub_id: []const u8, message: []const u8, buf: []u8) ![]u8 {
+        return closedWithParams(sub_id, message, null, buf);
+    }
+
+    // NIP-01: ["CLOSED", <subscription_id>, <message>, <?params>].
+    pub fn closedWithParams(sub_id: []const u8, message: []const u8, params: ?[]const u8, buf: []u8) ![]u8 {
         var fbs = std.Io.Writer.fixed(buf);
         const writer = &fbs;
 
         try writer.writeAll("[\"CLOSED\",\"");
         try writer.writeAll(sub_id);
         try writer.writeAll("\",\"");
-
-        for (message) |c| {
-            switch (c) {
-                '"' => try writer.writeAll("\\\""),
-                '\\' => try writer.writeAll("\\\\"),
-                '\n' => try writer.writeAll("\\n"),
-                else => try writer.writeByte(c),
-            }
-        }
-
-        try writer.writeAll("\"]");
+        try utils.writeJsonEscaped(writer, message);
+        try writer.writeByte('"');
+        try writeParams(writer, params);
+        try writer.writeByte(']');
 
         return fbs.buffered();
+    }
+
+    fn writeParams(writer: *std.Io.Writer, params: ?[]const u8) !void {
+        const p = params orelse return;
+        try writer.writeAll(",\"");
+        try utils.writeJsonEscaped(writer, p);
+        try writer.writeByte('"');
     }
 
     pub fn notice(message: []const u8, buf: []u8) ![]u8 {
@@ -963,6 +983,114 @@ test "RelayMsgParsed parses CLOSED" {
     ;
     const msg = try RelayMsgParsed.parse(json, allocator);
     try std.testing.expectEqual(RelayMsgType.closed, msg.msg_type);
+}
+
+test "RelayMsg.okWithParams and closedWithParams append params" {
+    var buf: [256]u8 = undefined;
+    var event_id: [32]u8 = undefined;
+    @memset(&event_id, 0xab);
+
+    const ok_msg = try RelayMsg.okWithParams(&event_id, false, "rate-limited: slow down", "1000", &buf);
+    try std.testing.expectEqualStrings(
+        \\["OK","abababababababababababababababababababababababababababababababab",false,"rate-limited: slow down","1000"]
+    , ok_msg);
+
+    const closed_msg = try RelayMsg.closedWithParams("sub1", "rate-limited: slow down", "2500", &buf);
+    try std.testing.expectEqualStrings(
+        \\["CLOSED","sub1","rate-limited: slow down","2500"]
+    , closed_msg);
+
+    const escaped = try RelayMsg.closedWithParams("s", "error:\t\"x\"", "a\"b\x01", &buf);
+    try std.testing.expectEqualStrings(
+        \\["CLOSED","s","error:\t\"x\"","a\"b\u0001"]
+    , escaped);
+
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, escaped, .{});
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("a\"b\x01", parsed.value.array.items[3].string);
+
+    try std.testing.expectEqualStrings(
+        \\["CLOSED","s","error: x"]
+    , try RelayMsg.closedWithParams("s", "error: x", null, &buf));
+}
+
+test "RelayMsgParsed reads the rate-limited retry hint" {
+    const allocator = std.testing.allocator;
+    const Case = struct { json: []const u8, want: ?u32 };
+    const cases = [_]Case{
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: slow down","1000"]
+        , .want = 1000 },
+        .{ .json =
+        \\["CLOSED","s","rate-limited: slow down","2500"]
+        , .want = 2500 },
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: slow down"]
+        , .want = null },
+        .{ .json =
+        \\["CLOSED","s","rate-limited: slow down"]
+        , .want = null },
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: x","0"]
+        , .want = null },
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: x","0100"]
+        , .want = null },
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: x","-5"]
+        , .want = null },
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: x","1.5"]
+        , .want = null },
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: x",""]
+        , .want = null },
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: x",1000]
+        , .want = null },
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: x","99999999999999999999999"]
+        , .want = null },
+        .{ .json =
+        \\["OK","ab",false,"blocked: x","1000"]
+        , .want = null },
+        .{ .json =
+        \\["CLOSED","s","error: x","1000"]
+        , .want = null },
+        .{ .json =
+        \\["OK","ab",true,"rate-limited: x","1000"]
+        , .want = null },
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: x","4294967295"]
+        , .want = 4294967295 },
+        .{ .json =
+        \\["OK","ab",false,"rate-limited: x","4294967296"]
+        , .want = null },
+    };
+    for (cases) |c| {
+        const msg = try RelayMsgParsed.parse(c.json, allocator);
+        try std.testing.expectEqual(c.want, msg.retry_after_ms);
+    }
+
+    const closed = try RelayMsgParsed.parse(
+        \\["CLOSED","s","rate-limited: slow down","2500"]
+    , allocator);
+    try std.testing.expect(closed.is_rate_limited);
+    const closed_err = try RelayMsgParsed.parse(
+        \\["CLOSED","s","error: x"]
+    , allocator);
+    try std.testing.expect(!closed_err.is_rate_limited);
+}
+
+test "RelayMsg.ok escapes control characters" {
+    var buf: [256]u8 = undefined;
+    var event_id: [32]u8 = undefined;
+    @memset(&event_id, 0);
+    const result = try RelayMsg.ok(&event_id, false, "error: a\r\tb\x01", &buf);
+    try std.testing.expect(std.mem.endsWith(u8, result, ",false,\"error: a\\r\\tb\\u0001\"]"));
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, result, .{});
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("error: a\r\tb\x01", parsed.value.array.items[3].string);
 }
 
 test "RelayMsgParsed parses AUTH" {
