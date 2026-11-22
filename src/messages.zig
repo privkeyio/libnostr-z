@@ -1160,17 +1160,22 @@ fn getNegFilterAndFree(allocator: std.mem.Allocator, msg: *const ClientMsg) !voi
 }
 
 test "ClientMsg filter parsing frees everything on allocation failure" {
+    // In-place resizes succeed or fail depending on page layout, which changes
+    // how many allocations the JSON arena makes, so refuse them all.
+    var no_resize = std.testing.FailingAllocator.init(std.testing.allocator, .{ .resize_fail_index = 0 });
+    const backing = no_resize.allocator();
+
     var req = try ClientMsg.parseWithAllocator(
         \\["REQ","s",{"ids":["0000000000000000000000000000000000000000000000000000000000000001"],"authors":[],"kinds":[1,2],"search":"q","#t":["a","b"],"#e":["0000000000000000000000000000000000000000000000000000000000000001","zz"],"#p":[]},{"#d":["x"],"limit":5}]
     , std.testing.allocator);
     defer req.deinit();
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, getFiltersAndFree, .{&req});
+    try std.testing.checkAllAllocationFailures(backing, getFiltersAndFree, .{&req});
 
     var neg = try ClientMsg.parseWithAllocator(
         \\["NEG-OPEN","s",{"kinds":[1],"#t":["a","b"],"#p":[],"search":"q"},"6100"]
     , std.testing.allocator);
     defer neg.deinit();
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, getNegFilterAndFree, .{&neg});
+    try std.testing.checkAllAllocationFailures(backing, getNegFilterAndFree, .{&neg});
 }
 
 test "ClientMsg.getNegFilter handles out-of-range integers" {
