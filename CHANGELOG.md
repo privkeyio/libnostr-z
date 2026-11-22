@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-22
+
+An empty `ids`, `authors`, `kinds` or tag list in a filter now matches nothing, as NIP-01 requires, and NIP-39 follows the current NIP. Relays that relied on an empty list matching everything see different results, and exhaustive switches over NIP-39 `Platform` need the new cases, so this is a minor version bump.
+
 ### Changed
 
 - StringZilla is pinned by commit (`7ca3964`, the commit tag v4.5.1 points to) instead of by tag. The content hash is unchanged.
