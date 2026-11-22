@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - StringZilla is pinned by commit (`7ca3964`, the commit tag v4.5.1 points to) instead of by tag. The content hash is unchanged.
 
+### Fixed
+
+- An empty `ids`, `authors`, `kinds` or tag list in a REQ, COUNT or NEG-OPEN filter now matches nothing, as NIP-01 requires, instead of being treated as absent and matching everything. A tag list whose values are all unusable also matches nothing. A list key whose value is not an array, such as `{"kinds":1}` or `{"#e":"x"}`, now fails with `error.InvalidJson` instead of being ignored. `getFilters` and `getNegFilter` return an empty slice for these lists rather than `null`.
+- `getNegFilter` now reads `#x` tag filters and `search`, which it ignored, so a NEG-OPEN with a tag constraint no longer reconciles against every event. REQ, COUNT and NEG-OPEN share one filter parser. Relays that limit `search` on REQ should apply the same limits to NEG-OPEN.
+- `getFilters` and `getNegFilter` free everything they allocated when an allocation fails, and report `error.OutOfMemory` instead of `error.InvalidJson` when the JSON parse runs out of memory.
+
 ## [0.5.0] - 2026-10-06
 
 Builds with Zig 0.17 as well as 0.16, and finishes the field-confusion fix from 0.4.0 in the client-side NIP-17, NIP-28, NIP-57, NWC and CLINK helpers. Some of their public types change, so this is a minor version bump.

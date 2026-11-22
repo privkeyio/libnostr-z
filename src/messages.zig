@@ -16,6 +16,116 @@ fn parseLimit(v: i64) ?u32 {
     return std.math.cast(u32, v) orelse std.math.maxInt(u32);
 }
 
+fn parseHexList(allocator: std.mem.Allocator, items: []const std.json.Value) ![][32]u8 {
+    var list: std.ArrayListUnmanaged([32]u8) = .empty;
+    errdefer list.deinit(allocator);
+    for (items) |item| {
+        if (item == .string and item.string.len == 64) {
+            var bytes: [32]u8 = undefined;
+            if (std.fmt.hexToBytes(&bytes, item.string)) |_| {
+                try list.append(allocator, bytes);
+            } else |_| {}
+        }
+    }
+    return list.toOwnedSlice(allocator);
+}
+
+fn parseTagValues(allocator: std.mem.Allocator, letter: u8, items: []const std.json.Value) ![]TagValue {
+    var list: std.ArrayListUnmanaged(TagValue) = .empty;
+    errdefer {
+        for (list.items) |val| switch (val) {
+            .string => |str| allocator.free(str),
+            .binary => {},
+        };
+        list.deinit(allocator);
+    }
+    const hex_letter = letter == 'e' or letter == 'p' or letter == 'E' or letter == 'P';
+    for (items) |item| {
+        if (item != .string) continue;
+        const str = item.string;
+        if (hex_letter and str.len == 64) {
+            var bytes: [32]u8 = undefined;
+            if (std.fmt.hexToBytes(&bytes, str)) |_| {
+                try list.append(allocator, .{ .binary = bytes });
+                continue;
+            } else |_| {}
+        } else if (str.len == 0 or str.len > 256) continue;
+        try list.ensureUnusedCapacity(allocator, 1);
+        list.appendAssumeCapacity(.{ .string = try allocator.dupe(u8, str) });
+    }
+    return list.toOwnedSlice(allocator);
+}
+
+fn parseFilter(allocator: std.mem.Allocator, obj: std.json.ObjectMap) !Filter {
+    var filter = Filter{ .allocator = allocator };
+    errdefer filter.deinit();
+
+    if (obj.get("ids")) |v| {
+        if (v != .array) return error.InvalidJson;
+        filter.ids_bytes = try parseHexList(allocator, v.array.items);
+    }
+    if (obj.get("authors")) |v| {
+        if (v != .array) return error.InvalidJson;
+        filter.authors_bytes = try parseHexList(allocator, v.array.items);
+    }
+    if (obj.get("kinds")) |v| {
+        if (v != .array) return error.InvalidJson;
+        var kinds_list: std.ArrayListUnmanaged(i32) = .empty;
+        errdefer kinds_list.deinit(allocator);
+        for (v.array.items) |k| {
+            if (k == .integer) {
+                if (std.math.cast(i32, k.integer)) |kind| try kinds_list.append(allocator, kind);
+            }
+        }
+        filter.kinds_slice = try kinds_list.toOwnedSlice(allocator);
+    }
+    if (obj.get("limit")) |v| {
+        if (v == .integer) filter.limit_val = parseLimit(v.integer);
+    }
+    if (obj.get("since")) |v| {
+        if (v == .integer) filter.since_val = v.integer;
+    }
+    if (obj.get("until")) |v| {
+        if (v == .integer) filter.until_val = v.integer;
+    }
+    if (obj.get("search")) |v| {
+        if (v == .string) filter.search_str = try allocator.dupe(u8, v.string);
+    }
+
+    var tag_entries: std.ArrayListUnmanaged(FilterTagEntry) = .empty;
+    errdefer {
+        for (tag_entries.items) |entry| {
+            for (entry.values) |val| switch (val) {
+                .string => |str| allocator.free(str),
+                .binary => {},
+            };
+            allocator.free(entry.values);
+        }
+        tag_entries.deinit(allocator);
+    }
+
+    var it = obj.iterator();
+    while (it.next()) |kv| {
+        const key = kv.key_ptr.*;
+        if (key.len != 2 or key[0] != '#' or !std.ascii.isAlphabetic(key[1])) continue;
+        const tag_val = kv.value_ptr.*;
+        if (tag_val != .array) return error.InvalidJson;
+        try tag_entries.ensureUnusedCapacity(allocator, 1);
+        tag_entries.appendAssumeCapacity(.{
+            .letter = key[1],
+            .values = try parseTagValues(allocator, key[1], tag_val.array.items),
+        });
+    }
+
+    if (tag_entries.items.len > 0) {
+        filter.tag_filters = try tag_entries.toOwnedSlice(allocator);
+    } else {
+        tag_entries.deinit(allocator);
+    }
+
+    return filter;
+}
+
 pub const ClientMsgType = enum {
     event,
     req,
@@ -120,7 +230,7 @@ pub const ClientMsg = struct {
     pub fn getFilters(self: *const ClientMsg, allocator: std.mem.Allocator) ![]Filter {
         if (self.msg_type != .req and self.msg_type != .count) return &[_]Filter{};
 
-        const parsed = std.json.parseFromSlice(std.json.Value, allocator, self.raw_json, .{}) catch return error.InvalidJson;
+        const parsed = std.json.parseFromSlice(std.json.Value, allocator, self.raw_json, .{}) catch |err| return if (err == error.OutOfMemory) error.OutOfMemory else error.InvalidJson;
         defer parsed.deinit();
 
         if (parsed.value != .array) return &[_]Filter{};
@@ -129,154 +239,15 @@ pub const ClientMsg = struct {
         if (arr.len < 3) return &[_]Filter{};
 
         var filters: std.ArrayListUnmanaged(Filter) = .empty;
-        errdefer filters.deinit(allocator);
+        errdefer {
+            for (filters.items) |*f| f.deinit();
+            filters.deinit(allocator);
+        }
 
         for (arr[2..]) |filter_val| {
             if (filter_val != .object) continue;
-
-            var filter = Filter{ .allocator = allocator };
+            var filter = try parseFilter(allocator, filter_val.object);
             errdefer filter.deinit();
-            const filter_obj = filter_val.object;
-
-            if (filter_obj.get("ids")) |ids_val| {
-                if (ids_val == .array) {
-                    var ids_list: std.ArrayListUnmanaged([32]u8) = .empty;
-                    for (ids_val.array.items) |id_val| {
-                        if (id_val == .string and id_val.string.len == 64) {
-                            var id_bytes: [32]u8 = undefined;
-                            if (std.fmt.hexToBytes(&id_bytes, id_val.string)) |_| {
-                                try ids_list.append(allocator, id_bytes);
-                            } else |_| {}
-                        }
-                    }
-                    if (ids_val.array.items.len > 0) {
-                        filter.ids_bytes = try ids_list.toOwnedSlice(allocator);
-                    } else {
-                        ids_list.deinit(allocator);
-                    }
-                }
-            }
-
-            if (filter_obj.get("authors")) |authors_val| {
-                if (authors_val == .array) {
-                    var authors_list: std.ArrayListUnmanaged([32]u8) = .empty;
-                    for (authors_val.array.items) |author_val| {
-                        if (author_val == .string and author_val.string.len == 64) {
-                            var author_bytes: [32]u8 = undefined;
-                            if (std.fmt.hexToBytes(&author_bytes, author_val.string)) |_| {
-                                try authors_list.append(allocator, author_bytes);
-                            } else |_| {}
-                        }
-                    }
-                    if (authors_val.array.items.len > 0) {
-                        filter.authors_bytes = try authors_list.toOwnedSlice(allocator);
-                    } else {
-                        authors_list.deinit(allocator);
-                    }
-                }
-            }
-
-            if (filter_obj.get("kinds")) |kinds_val| {
-                if (kinds_val == .array) {
-                    var kinds_list: std.ArrayListUnmanaged(i32) = .empty;
-                    for (kinds_val.array.items) |k| {
-                        if (k == .integer) {
-                            if (std.math.cast(i32, k.integer)) |kind| try kinds_list.append(allocator, kind);
-                        }
-                    }
-                    if (kinds_val.array.items.len > 0) {
-                        filter.kinds_slice = try kinds_list.toOwnedSlice(allocator);
-                    } else {
-                        kinds_list.deinit(allocator);
-                    }
-                }
-            }
-
-            if (filter_obj.get("limit")) |v| {
-                if (v == .integer) filter.limit_val = parseLimit(v.integer);
-            }
-
-            if (filter_obj.get("since")) |v| {
-                if (v == .integer) {
-                    filter.since_val = v.integer;
-                }
-            }
-            if (filter_obj.get("until")) |v| {
-                if (v == .integer) {
-                    filter.until_val = v.integer;
-                }
-            }
-
-            if (filter_obj.get("search")) |v| {
-                if (v == .string) {
-                    filter.search_str = try allocator.dupe(u8, v.string);
-                }
-            }
-
-            var tag_entries: std.ArrayListUnmanaged(FilterTagEntry) = .empty;
-            errdefer {
-                for (tag_entries.items) |entry| {
-                    for (entry.values) |val| {
-                        switch (val) {
-                            .string => |s| allocator.free(s),
-                            .binary => {},
-                        }
-                    }
-                    allocator.free(entry.values);
-                }
-                tag_entries.deinit(allocator);
-            }
-
-            var filter_iter = filter_obj.iterator();
-            while (filter_iter.next()) |kv| {
-                const key = kv.key_ptr.*;
-                if (key.len == 2 and key[0] == '#') {
-                    const letter = key[1];
-                    if ((letter >= 'a' and letter <= 'z') or (letter >= 'A' and letter <= 'Z')) {
-                        const tag_val = kv.value_ptr.*;
-                        if (tag_val == .array) {
-                            var values_list: std.ArrayListUnmanaged(TagValue) = .empty;
-                            errdefer values_list.deinit(allocator);
-
-                            for (tag_val.array.items) |item| {
-                                if (item == .string) {
-                                    const str = item.string;
-                                    if ((letter == 'e' or letter == 'p' or letter == 'E' or letter == 'P') and str.len == 64) {
-                                        var bytes: [32]u8 = undefined;
-                                        if (std.fmt.hexToBytes(&bytes, str)) |_| {
-                                            try values_list.append(allocator, .{ .binary = bytes });
-                                        } else |_| {
-                                            const duped = try allocator.dupe(u8, str);
-                                            try values_list.append(allocator, .{ .string = duped });
-                                        }
-                                    } else {
-                                        if (str.len > 0 and str.len <= 256) {
-                                            const duped = try allocator.dupe(u8, str);
-                                            try values_list.append(allocator, .{ .string = duped });
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (values_list.items.len > 0) {
-                                try tag_entries.append(allocator, .{
-                                    .letter = letter,
-                                    .values = try values_list.toOwnedSlice(allocator),
-                                });
-                            } else {
-                                values_list.deinit(allocator);
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (tag_entries.items.len > 0) {
-                filter.tag_filters = try tag_entries.toOwnedSlice(allocator);
-            } else {
-                tag_entries.deinit(allocator);
-            }
-
             try filters.append(allocator, filter);
         }
 
@@ -286,84 +257,14 @@ pub const ClientMsg = struct {
     pub fn getNegFilter(self: *const ClientMsg, allocator: std.mem.Allocator) !?Filter {
         if (self.msg_type != .neg_open) return null;
 
-        const parsed = std.json.parseFromSlice(std.json.Value, allocator, self.raw_json, .{}) catch return error.InvalidJson;
+        const parsed = std.json.parseFromSlice(std.json.Value, allocator, self.raw_json, .{}) catch |err| return if (err == error.OutOfMemory) error.OutOfMemory else error.InvalidJson;
         defer parsed.deinit();
 
         if (parsed.value != .array) return null;
         const arr = parsed.value.array.items;
         if (arr.len < 3 or arr[2] != .object) return null;
 
-        var filter = Filter{ .allocator = allocator };
-        errdefer filter.deinit();
-        const filter_obj = arr[2].object;
-
-        if (filter_obj.get("ids")) |ids_val| {
-            if (ids_val == .array) {
-                var ids_list: std.ArrayListUnmanaged([32]u8) = .empty;
-                for (ids_val.array.items) |id_val| {
-                    if (id_val == .string and id_val.string.len == 64) {
-                        var id_bytes: [32]u8 = undefined;
-                        if (std.fmt.hexToBytes(&id_bytes, id_val.string)) |_| {
-                            try ids_list.append(allocator, id_bytes);
-                        } else |_| {}
-                    }
-                }
-                if (ids_val.array.items.len > 0) {
-                    filter.ids_bytes = try ids_list.toOwnedSlice(allocator);
-                } else {
-                    ids_list.deinit(allocator);
-                }
-            }
-        }
-
-        if (filter_obj.get("authors")) |authors_val| {
-            if (authors_val == .array) {
-                var authors_list: std.ArrayListUnmanaged([32]u8) = .empty;
-                for (authors_val.array.items) |author_val| {
-                    if (author_val == .string and author_val.string.len == 64) {
-                        var author_bytes: [32]u8 = undefined;
-                        if (std.fmt.hexToBytes(&author_bytes, author_val.string)) |_| {
-                            try authors_list.append(allocator, author_bytes);
-                        } else |_| {}
-                    }
-                }
-                if (authors_val.array.items.len > 0) {
-                    filter.authors_bytes = try authors_list.toOwnedSlice(allocator);
-                } else {
-                    authors_list.deinit(allocator);
-                }
-            }
-        }
-
-        if (filter_obj.get("kinds")) |kinds_val| {
-            if (kinds_val == .array) {
-                var kinds_list: std.ArrayListUnmanaged(i32) = .empty;
-                for (kinds_val.array.items) |kind_val| {
-                    if (kind_val == .integer) {
-                        if (std.math.cast(i32, kind_val.integer)) |kind| try kinds_list.append(allocator, kind);
-                    }
-                }
-                if (kinds_val.array.items.len > 0) {
-                    filter.kinds_slice = try kinds_list.toOwnedSlice(allocator);
-                } else {
-                    kinds_list.deinit(allocator);
-                }
-            }
-        }
-
-        if (filter_obj.get("since")) |since_val| {
-            if (since_val == .integer) filter.since_val = since_val.integer;
-        }
-
-        if (filter_obj.get("until")) |until_val| {
-            if (until_val == .integer) filter.until_val = until_val.integer;
-        }
-
-        if (filter_obj.get("limit")) |limit_val| {
-            if (limit_val == .integer) filter.limit_val = parseLimit(limit_val.integer);
-        }
-
-        return filter;
+        return try parseFilter(allocator, arr[2].object);
     }
 
     pub fn getNegPayload(self: *const ClientMsg, out: []u8) ![]u8 {
@@ -1120,10 +1021,10 @@ test "ClientMsg.getFilters keeps limit 0 and handles out-of-range integers" {
     try std.testing.expectEqual(@as(?u32, null), filters[2].limit());
 }
 
-test "ClientMsg.getFilters does not widen a filter whose entries are all unusable" {
+test "ClientMsg.getFilters does not widen a filter whose lists are empty or unusable" {
     const allocator = std.testing.allocator;
     const json =
-        \\["REQ","s",{"kinds":[99999999999999999999]},{"kinds":[1.5,"1"]},{"ids":["zz"]},{"authors":[1]},{"kinds":[]}]
+        \\["REQ","s",{"kinds":[99999999999999999999]},{"kinds":[1.5,"1"]},{"ids":["zz"]},{"authors":[1]},{"kinds":[]},{"ids":[]},{"authors":[]},{"#t":[]},{"#t":[""]},{"kinds":[1]}]
     ;
 
     var msg = try ClientMsg.parseWithAllocator(json, allocator);
@@ -1139,13 +1040,137 @@ test "ClientMsg.getFilters does not widen a filter whose entries are all unusabl
     try std.testing.expectEqual(@as(usize, 0), filters[1].kinds().?.len);
     try std.testing.expectEqual(@as(usize, 0), filters[2].ids().?.len);
     try std.testing.expectEqual(@as(usize, 0), filters[3].authors().?.len);
-    try std.testing.expectEqual(@as(?[]const i32, null), filters[4].kinds());
+    try std.testing.expectEqual(@as(usize, 0), filters[4].kinds().?.len);
+    try std.testing.expectEqual(@as(usize, 0), filters[5].ids().?.len);
+    try std.testing.expectEqual(@as(usize, 0), filters[6].authors().?.len);
+    try std.testing.expect(filters[7].hasTagFilters());
+    try std.testing.expect(filters[8].hasTagFilters());
 
     var event = try Event.parseWithAllocator(
-        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","created_at":1700000000,"kind":1,"tags":[],"content":"","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","created_at":1700000000,"kind":1,"tags":[["t","x"]],"content":"","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}
     , allocator);
     defer event.deinit();
-    for (filters[0..4]) |*f| try std.testing.expect(!f.matches(&event));
+    for (filters[0..9]) |*f| try std.testing.expect(!f.matches(&event));
+    try std.testing.expect(filters[9].matches(&event));
+
+    var buf: [256]u8 = undefined;
+    try std.testing.expectEqualStrings("{\"kinds\":[]}", try filters[4].serialize(&buf));
+    try std.testing.expectEqualStrings("{\"#t\":[]}", try filters[7].serialize(&buf));
+}
+
+test "ClientMsg.getFilters keeps tag value edge cases" {
+    const allocator = std.testing.allocator;
+    const not_hex: [64]u8 = @splat('z');
+    const too_long: [257]u8 = @splat('a');
+    var json_buf: [512]u8 = undefined;
+    const json = try std.fmt.bufPrint(&json_buf, "[\"REQ\",\"s\",{{\"#e\":[\"{s}\"]}},{{\"#t\":[\"{s}\"]}}]", .{ &not_hex, &too_long });
+
+    var msg = try ClientMsg.parseWithAllocator(json, allocator);
+    defer msg.deinit();
+
+    const filters = try msg.getFilters(allocator);
+    defer {
+        for (filters) |*f| f.deinit();
+        allocator.free(filters);
+    }
+
+    const e_values = filters[0].tag_filters.?[0].values;
+    try std.testing.expectEqual(@as(usize, 1), e_values.len);
+    try std.testing.expectEqualStrings(&not_hex, e_values[0].string);
+
+    try std.testing.expectEqual(@as(usize, 1), filters[1].tag_filters.?.len);
+    try std.testing.expectEqual(@as(usize, 0), filters[1].tag_filters.?[0].values.len);
+}
+
+test "ClientMsg rejects a filter list that is not an array" {
+    const allocator = std.testing.allocator;
+    const reqs = [_][]const u8{
+        \\["REQ","s",{"kinds":1}]
+        ,
+        \\["REQ","s",{"ids":"abc"}]
+        ,
+        \\["COUNT","s",{"authors":{}}]
+        ,
+        \\["REQ","s",{"#e":"x"}]
+        ,
+        \\["REQ","s",{"kinds":[1]},{"#t":null}]
+        ,
+    };
+    for (reqs) |json| {
+        var msg = try ClientMsg.parseWithAllocator(json, allocator);
+        defer msg.deinit();
+        try std.testing.expectError(error.InvalidJson, msg.getFilters(allocator));
+    }
+
+    var neg = try ClientMsg.parseWithAllocator(
+        \\["NEG-OPEN","s",{"kinds":1},"6100"]
+    , allocator);
+    defer neg.deinit();
+    try std.testing.expectError(error.InvalidJson, neg.getNegFilter(allocator));
+}
+
+test "ClientMsg.getNegFilter keeps empty lists so they match nothing" {
+    const allocator = std.testing.allocator;
+    const cases = [_][]const u8{
+        \\["NEG-OPEN","s",{"ids":[]},"6100"]
+        ,
+        \\["NEG-OPEN","s",{"authors":[]},"6100"]
+        ,
+        \\["NEG-OPEN","s",{"kinds":[]},"6100"]
+        ,
+        \\["NEG-OPEN","s",{"#t":[]},"6100"]
+        ,
+        \\["NEG-OPEN","s",{"#t":["y"]},"6100"]
+        ,
+        \\["NEG-OPEN","s",{"search":"absent"},"6100"]
+        ,
+    };
+
+    var event = try Event.parseWithAllocator(
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","created_at":1700000000,"kind":1,"tags":[["t","x"]],"content":"","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}
+    , allocator);
+    defer event.deinit();
+
+    for (cases) |json| {
+        var msg = try ClientMsg.parseWithAllocator(json, allocator);
+        defer msg.deinit();
+        var filter = (try msg.getNegFilter(allocator)).?;
+        defer filter.deinit();
+        try std.testing.expect(!filter.matches(&event));
+    }
+
+    var msg = try ClientMsg.parseWithAllocator(
+        \\["NEG-OPEN","s",{"#t":["x"],"kinds":[1]},"6100"]
+    , allocator);
+    defer msg.deinit();
+    var filter = (try msg.getNegFilter(allocator)).?;
+    defer filter.deinit();
+    try std.testing.expect(filter.matches(&event));
+}
+
+fn getFiltersAndFree(allocator: std.mem.Allocator, msg: *const ClientMsg) !void {
+    const filters = try msg.getFilters(allocator);
+    for (filters) |*f| f.deinit();
+    allocator.free(filters);
+}
+
+fn getNegFilterAndFree(allocator: std.mem.Allocator, msg: *const ClientMsg) !void {
+    var filter = (try msg.getNegFilter(allocator)).?;
+    filter.deinit();
+}
+
+test "ClientMsg filter parsing frees everything on allocation failure" {
+    var req = try ClientMsg.parseWithAllocator(
+        \\["REQ","s",{"ids":["0000000000000000000000000000000000000000000000000000000000000001"],"authors":[],"kinds":[1,2],"search":"q","#t":["a","b"],"#e":["0000000000000000000000000000000000000000000000000000000000000001","zz"],"#p":[]},{"#d":["x"],"limit":5}]
+    , std.testing.allocator);
+    defer req.deinit();
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, getFiltersAndFree, .{&req});
+
+    var neg = try ClientMsg.parseWithAllocator(
+        \\["NEG-OPEN","s",{"kinds":[1],"#t":["a","b"],"#p":[],"search":"q"},"6100"]
+    , std.testing.allocator);
+    defer neg.deinit();
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, getNegFilterAndFree, .{&neg});
 }
 
 test "ClientMsg.getNegFilter handles out-of-range integers" {
