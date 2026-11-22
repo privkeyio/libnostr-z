@@ -6,12 +6,15 @@ const bech32 = @import("bech32.zig");
 pub const Event = event_mod.Event;
 
 pub const METADATA_KIND: i32 = 0;
+pub const IDENTITY_KIND: i32 = 10011;
 
 pub const Platform = enum {
     github,
     twitter,
     mastodon,
     telegram,
+    bluesky,
+    discord,
     unknown,
 
     pub fn fromString(s: []const u8) Platform {
@@ -19,6 +22,8 @@ pub const Platform = enum {
         if (std.mem.eql(u8, s, "twitter")) return .twitter;
         if (std.mem.eql(u8, s, "mastodon")) return .mastodon;
         if (std.mem.eql(u8, s, "telegram")) return .telegram;
+        if (std.mem.eql(u8, s, "bluesky")) return .bluesky;
+        if (std.mem.eql(u8, s, "discord")) return .discord;
         return .unknown;
     }
 
@@ -28,6 +33,8 @@ pub const Platform = enum {
             .twitter => "twitter",
             .mastodon => "mastodon",
             .telegram => "telegram",
+            .bluesky => "bluesky",
+            .discord => "discord",
             .unknown => "unknown",
         };
     }
@@ -61,7 +68,7 @@ pub const IdentityList = struct {
     }
 
     pub fn fromEvent(event: *const Event, allocator: std.mem.Allocator) !IdentityList {
-        if (event.kind() != METADATA_KIND) {
+        if (event.kind() != IDENTITY_KIND and event.kind() != METADATA_KIND) {
             return error.InvalidKind;
         }
 
@@ -151,7 +158,81 @@ const IdentityTagIterator = struct {
     }
 };
 
+fn isAlnum(c: u8) bool {
+    return std.ascii.isAlphanumeric(c);
+}
+
+fn isDigit(c: u8) bool {
+    return std.ascii.isDigit(c);
+}
+
+fn isHandleChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '.' or c == '-';
+}
+
+fn isGithubChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '-';
+}
+
+fn isWordChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
+fn isUserChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_' or c == '.' or c == '-';
+}
+
+fn allOf(s: []const u8, comptime pred: fn (u8) bool) bool {
+    if (s.len == 0) return false;
+    for (s) |c| if (!pred(c)) return false;
+    return true;
+}
+
+fn isHandle(s: []const u8) bool {
+    return allOf(s, isHandleChar) and s[0] != '.' and std.mem.indexOf(u8, s, "..") == null;
+}
+
+fn isPublicHost(s: []const u8) bool {
+    if (!isHandle(s)) return false;
+    const dot = std.mem.lastIndexOfScalar(u8, s, '.') orelse return false;
+    const tld = s[dot + 1 ..];
+    return tld.len > 0 and !allOf(tld, isDigit);
+}
+
+fn splitDigits(s: []const u8, comptime parts: usize) bool {
+    var it = std.mem.splitScalar(u8, s, '/');
+    var n: usize = 0;
+    while (it.next()) |part| : (n += 1) {
+        if (n >= parts or !allOf(part, isDigit)) return false;
+    }
+    return n == parts;
+}
+
+fn isValidClaim(identity: ExternalIdentity) bool {
+    const id = identity.identity;
+    const proof = identity.proof;
+    return switch (identity.platform) {
+        .github => allOf(id, isGithubChar) and allOf(proof, isAlnum),
+        .twitter => allOf(id, isWordChar) and allOf(proof, isDigit),
+        .mastodon => blk: {
+            const sep = std.mem.indexOf(u8, id, "/@") orelse break :blk false;
+            break :blk isPublicHost(id[0..sep]) and allOf(id[sep + 2 ..], isUserChar) and allOf(proof, isAlnum);
+        },
+        .telegram => blk: {
+            const slash = std.mem.indexOfScalar(u8, proof, '/') orelse break :blk false;
+            break :blk allOf(proof[0..slash], isWordChar) and allOf(proof[slash + 1 ..], isDigit);
+        },
+        .bluesky => isHandle(id) and allOf(proof, isAlnum),
+        .discord => splitDigits(proof, 3),
+        .unknown => false,
+    };
+}
+
+// Returns null when the identity or proof holds characters outside what the
+// platform uses, so a crafted value cannot redirect the URL to another account.
 pub fn getProofUrl(identity: ExternalIdentity, buf: []u8) ?[]u8 {
+    if (!isValidClaim(identity)) return null;
+
     var stream = std.Io.Writer.fixed(buf);
     const writer = &stream;
 
@@ -168,6 +249,12 @@ pub fn getProofUrl(identity: ExternalIdentity, buf: []u8) ?[]u8 {
         .telegram => {
             writer.print("https://t.me/{s}", .{identity.proof}) catch return null;
         },
+        .bluesky => {
+            writer.print("https://bsky.app/profile/{s}/post/{s}", .{ identity.identity, identity.proof }) catch return null;
+        },
+        .discord => {
+            writer.print("https://discord.com/channels/{s}", .{identity.proof}) catch return null;
+        },
         .unknown => return null,
     }
 
@@ -175,26 +262,32 @@ pub fn getProofUrl(identity: ExternalIdentity, buf: []u8) ?[]u8 {
 }
 
 pub fn getExpectedProofText(platform: Platform, pubkey: *const [32]u8, buf: []u8) ?[]u8 {
+    if (platform == .unknown) return null;
+
     var npub_buf: [63]u8 = undefined;
     bech32.encodeNpub(pubkey, &npub_buf);
 
     var stream = std.Io.Writer.fixed(buf);
-    const writer = &stream;
-
-    switch (platform) {
-        .github => {
-            writer.print("Verifying that I control the following Nostr public key: {s}", .{npub_buf}) catch return null;
-        },
-        .twitter => {
-            writer.print("Verifying my account on nostr My Public Key: \"{s}\"", .{npub_buf}) catch return null;
-        },
-        .mastodon, .telegram => {
-            writer.print("Verifying that I control the following Nostr public key: \"{s}\"", .{npub_buf}) catch return null;
-        },
-        .unknown => return null,
-    }
-
+    stream.print("Verifying that I control the following Nostr public key: {s}", .{npub_buf}) catch return null;
     return stream.buffered();
+}
+
+// NIP-39 asks verifiers to accept any proof that contains the npub, so a post
+// that only mentions the npub (for example to disown it) also passes. The caller
+// must still check that the proof was published by the claimed identity.
+pub fn proofMentionsPubkey(proof_text: []const u8, pubkey: *const [32]u8) bool {
+    var npub_buf: [63]u8 = undefined;
+    bech32.encodeNpub(pubkey, &npub_buf);
+    var pos: usize = 0;
+    while (pos + npub_buf.len <= proof_text.len) {
+        const at = std.ascii.findIgnoreCasePos(proof_text, pos, &npub_buf) orelse return false;
+        const end = at + npub_buf.len;
+        const before_ok = at == 0 or !std.ascii.isAlphanumeric(proof_text[at - 1]);
+        const after_ok = end == proof_text.len or !std.ascii.isAlphanumeric(proof_text[end]);
+        if (before_ok and after_ok) return true;
+        pos = at + 1;
+    }
+    return false;
 }
 
 pub fn buildIdentityTags(
@@ -249,6 +342,8 @@ test "Platform.fromString parses known platforms" {
     try std.testing.expectEqual(Platform.twitter, Platform.fromString("twitter"));
     try std.testing.expectEqual(Platform.mastodon, Platform.fromString("mastodon"));
     try std.testing.expectEqual(Platform.telegram, Platform.fromString("telegram"));
+    try std.testing.expectEqual(Platform.bluesky, Platform.fromString("bluesky"));
+    try std.testing.expectEqual(Platform.discord, Platform.fromString("discord"));
     try std.testing.expectEqual(Platform.unknown, Platform.fromString("facebook"));
 }
 
@@ -374,6 +469,14 @@ test "getProofUrl generates correct URLs" {
     const telegram_url = getProofUrl(telegram, &buf).?;
     try std.testing.expectEqualStrings("https://t.me/channel/999", telegram_url);
 
+    const bluesky = ExternalIdentity{ .platform = .bluesky, .platform_name = "bluesky", .identity = "alice.bsky.social", .proof = "3kabc" };
+    const bluesky_url = getProofUrl(bluesky, &buf).?;
+    try std.testing.expectEqualStrings("https://bsky.app/profile/alice.bsky.social/post/3kabc", bluesky_url);
+
+    const discord = ExternalIdentity{ .platform = .discord, .platform_name = "discord", .identity = "alice", .proof = "111/222/333" };
+    const discord_url = getProofUrl(discord, &buf).?;
+    try std.testing.expectEqualStrings("https://discord.com/channels/111/222/333", discord_url);
+
     const unknown = ExternalIdentity{ .platform = .unknown, .platform_name = "facebook", .identity = "test", .proof = "proof" };
     try std.testing.expect(getProofUrl(unknown, &buf) == null);
 }
@@ -383,16 +486,111 @@ test "getExpectedProofText generates correct text" {
     @memset(&pubkey, 0);
     var buf: [256]u8 = undefined;
 
-    const github_text = getExpectedProofText(.github, &pubkey, &buf).?;
-    try std.testing.expect(std.mem.startsWith(u8, github_text, "Verifying that I control the following Nostr public key: npub1"));
+    var npub: [63]u8 = undefined;
+    bech32.encodeNpub(&pubkey, &npub);
+    var want_buf: [128]u8 = undefined;
+    const want = try std.fmt.bufPrint(&want_buf, "Verifying that I control the following Nostr public key: {s}", .{npub});
 
-    const twitter_text = getExpectedProofText(.twitter, &pubkey, &buf).?;
-    try std.testing.expect(std.mem.startsWith(u8, twitter_text, "Verifying my account on nostr My Public Key: \"npub1"));
-
-    const mastodon_text = getExpectedProofText(.mastodon, &pubkey, &buf).?;
-    try std.testing.expect(std.mem.startsWith(u8, mastodon_text, "Verifying that I control the following Nostr public key: \"npub1"));
+    for ([_]Platform{ .github, .twitter, .mastodon, .telegram, .bluesky, .discord }) |platform| {
+        try std.testing.expectEqualStrings(want, getExpectedProofText(platform, &pubkey, &buf).?);
+    }
 
     try std.testing.expect(getExpectedProofText(.unknown, &pubkey, &buf) == null);
+    try std.testing.expect(getExpectedProofText(.github, &pubkey, buf[0..10]) == null);
+}
+
+test "proofMentionsPubkey accepts current and earlier proof texts" {
+    var pubkey: [32]u8 = undefined;
+    @memset(&pubkey, 0);
+    var other: [32]u8 = undefined;
+    @memset(&other, 1);
+
+    var npub: [63]u8 = undefined;
+    bech32.encodeNpub(&pubkey, &npub);
+    var buf: [256]u8 = undefined;
+
+    const current = getExpectedProofText(.github, &pubkey, &buf).?;
+    try std.testing.expect(proofMentionsPubkey(current, &pubkey));
+    try std.testing.expect(!proofMentionsPubkey(current, &other));
+
+    const old_twitter = try std.fmt.bufPrint(&buf, "Verifying my account on nostr My Public Key: \"{s}\"", .{npub});
+    try std.testing.expect(proofMentionsPubkey(old_twitter, &pubkey));
+
+    const old_quoted = try std.fmt.bufPrint(&buf, "Verifying that I control the following Nostr public key: \"{s}\"", .{npub});
+    try std.testing.expect(proofMentionsPubkey(old_quoted, &pubkey));
+
+    try std.testing.expect(!proofMentionsPubkey("Verifying that I control the following Nostr public key: ", &pubkey));
+    try std.testing.expect(!proofMentionsPubkey(npub[0..62], &pubkey));
+
+    var upper: [63]u8 = undefined;
+    _ = std.ascii.upperString(&upper, &npub);
+    try std.testing.expect(proofMentionsPubkey(&upper, &pubkey));
+
+    const embedded = try std.fmt.bufPrint(&buf, "x{s}", .{npub});
+    try std.testing.expect(!proofMentionsPubkey(embedded, &pubkey));
+    const trailing = try std.fmt.bufPrint(&buf, "{s}q", .{npub});
+    try std.testing.expect(!proofMentionsPubkey(trailing, &pubkey));
+    const later = try std.fmt.bufPrint(&buf, "x{s} and {s}.", .{ npub, npub });
+    try std.testing.expect(proofMentionsPubkey(later, &pubkey));
+}
+
+test "getProofUrl rejects values that could point at another account" {
+    var buf: [256]u8 = undefined;
+    const Case = struct { platform: Platform, identity: []const u8, proof: []const u8 };
+    const bad = [_]Case{
+        .{ .platform = .bluesky, .identity = "famous.bsky.social", .proof = "../../mallory.bsky.social/post/3kxyz" },
+        .{ .platform = .bluesky, .identity = "famous.bsky.social", .proof = "..\\/..\\/x" },
+        .{ .platform = .bluesky, .identity = "..", .proof = "3kxyz" },
+        .{ .platform = .bluesky, .identity = ".bsky.social", .proof = "3kxyz" },
+        .{ .platform = .bluesky, .identity = "a..b", .proof = "3kxyz" },
+        .{ .platform = .bluesky, .identity = "famous.bsky.social", .proof = "3kxyz?x" },
+        .{ .platform = .bluesky, .identity = "famous.bsky.social", .proof = "" },
+        .{ .platform = .github, .identity = "famous", .proof = "../mallory/abc" },
+        .{ .platform = .github, .identity = "famous/../mallory", .proof = "abc" },
+        .{ .platform = .twitter, .identity = "famous", .proof = "1/../../mallory/status/2" },
+        .{ .platform = .twitter, .identity = "famous#", .proof = "1" },
+        .{ .platform = .mastodon, .identity = "evil.com@mastodon.social/@a", .proof = "1" },
+        .{ .platform = .mastodon, .identity = "127.0.0.1:8080/@a", .proof = "1" },
+        .{ .platform = .mastodon, .identity = "169.254.169.254/@a", .proof = "1" },
+        .{ .platform = .mastodon, .identity = "localhost/@a", .proof = "1" },
+        .{ .platform = .mastodon, .identity = "mastodon.social./@a", .proof = "1" },
+        .{ .platform = .mastodon, .identity = "mastodon.social", .proof = "1" },
+        .{ .platform = .mastodon, .identity = "mastodon.social/@a/../b", .proof = "1" },
+        .{ .platform = .mastodon, .identity = "mastodon.social/@a", .proof = "../1" },
+        .{ .platform = .telegram, .identity = "1", .proof = "channel" },
+        .{ .platform = .telegram, .identity = "1", .proof = "../evil/1" },
+        .{ .platform = .telegram, .identity = "1", .proof = "channel/1/2" },
+        .{ .platform = .discord, .identity = "alice", .proof = "1/2" },
+        .{ .platform = .discord, .identity = "alice", .proof = "1/2/3/4" },
+        .{ .platform = .discord, .identity = "alice", .proof = "1/2/../3" },
+        .{ .platform = .discord, .identity = "alice", .proof = "1//3" },
+        .{ .platform = .discord, .identity = "alice", .proof = "1/2/3 " },
+    };
+    for (bad) |c| {
+        const id = ExternalIdentity{ .platform = c.platform, .platform_name = c.platform.toString(), .identity = c.identity, .proof = c.proof };
+        try std.testing.expect(getProofUrl(id, &buf) == null);
+    }
+
+    const dashed = ExternalIdentity{ .platform = .github, .platform_name = "github", .identity = "some-user", .proof = "9721ce4ee4fceb91c9711ca2a6c9a5ab" };
+    try std.testing.expectEqualStrings("https://gist.github.com/some-user/9721ce4ee4fceb91c9711ca2a6c9a5ab", getProofUrl(dashed, &buf).?);
+    const masto = ExternalIdentity{ .platform = .mastodon, .platform_name = "mastodon", .identity = "bitcoinhackers.org/@semisol", .proof = "109775066355589974" };
+    try std.testing.expectEqualStrings("https://bitcoinhackers.org/@semisol/109775066355589974", getProofUrl(masto, &buf).?);
+    const tg = ExternalIdentity{ .platform = .telegram, .platform_name = "telegram", .identity = "1087295469", .proof = "nostrdirectory/770" };
+    try std.testing.expectEqualStrings("https://t.me/nostrdirectory/770", getProofUrl(tg, &buf).?);
+}
+
+test "IdentityList.fromEvent reads kind 10011" {
+    const allocator = std.testing.allocator;
+    var event = try Event.parseWithAllocator(
+        \\{"id":"0000000000000000000000000000000000000000000000000000000000000001","pubkey":"0000000000000000000000000000000000000000000000000000000000000002","sig":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003","kind":10011,"created_at":1700000000,"content":"","tags":[["i","bluesky:alice.bsky.social","3kabc"],["i","discord:alice","1/2/3"]]}
+    , allocator);
+    defer event.deinit();
+
+    var list = try IdentityList.fromEvent(&event, allocator);
+    defer list.deinit();
+    try std.testing.expectEqual(@as(usize, 2), list.count());
+    try std.testing.expectEqual(Platform.bluesky, list.identities.items[0].platform);
+    try std.testing.expectEqual(Platform.discord, list.identities.items[1].platform);
 }
 
 test "buildIdentityTags creates correct tag structure" {
